@@ -259,27 +259,27 @@ exports.getUserPurchases = async (req, res) => {
     const { page = 1, limit = 10 } = req.query;
 
     const purchases = await Purchase.find({
-      user: userId,
-      status: 'completed'
+      user:   userId,
+      status: 'completed',
     })
-    .populate({
-      path: 'content',
-      select: 'title description type category price thumbnailUrl'
-    })
-    .limit(limit * 1)
-    .skip((page - 1) * limit)
-    .sort({ purchasedAt: -1 });
+      .populate({
+        path:   'content',
+        select: 'title description type category price thumbnailUrl tags createdBy fileSize duration fileUrl status',
+      })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .sort({ purchasedAt: -1 });
 
     const count = await Purchase.countDocuments({
-      user: userId,
-      status: 'completed'
+      user:   userId,
+      status: 'completed',
     });
 
     res.json({
       purchases,
-      totalPages: Math.ceil(count / limit),
-      currentPage: Number(page),
-      totalPurchases: count
+      totalPages:     Math.ceil(count / limit),
+      currentPage:    Number(page),
+      totalPurchases: count,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const contentController = require('../controllers/contentController');
+const contentController = require('../controllers/contentController_');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { uploadContent } = require('../config/cloudinary');
 

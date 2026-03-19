@@ -2,65 +2,145 @@ const stripe = require('../config/stripe');
 const Content = require('../models/Content');
 const Purchase = require('../models/Purchase');
 
-// Create payment intent for content purchase
+// ─── Single item purchase ──────────────────────────────────
 exports.createPaymentIntent = async (req, res) => {
   try {
     const { contentId } = req.body;
     const userId = req.mongoUser._id;
 
-    // Get content details
-    const content = await Content.findOne({ 
-      _id: contentId, 
-      status: 'published' 
+    const content = await Content.findOne({
+      _id: contentId,
+      status: 'published',
     });
 
     if (!content) {
       return res.status(404).json({ error: 'Content not found' });
     }
 
-    // Check if user already purchased this content
     const existingPurchase = await Purchase.findOne({
       user: userId,
       content: contentId,
-      status: 'completed'
+      status: 'completed',
     });
 
     if (existingPurchase) {
-      return res.status(400).json({ 
-        error: 'You have already purchased this content' 
+      return res.status(400).json({
+        error: 'You have already purchased this content',
       });
     }
 
-    // Create payment intent
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(content.price * 100), // Stripe uses cents
+      amount: Math.round(content.price * 100),
       currency: 'usd',
       metadata: {
-        contentId: content._id.toString(),
-        userId: userId.toString(),
-        contentTitle: content.title
-      }
+        contentId:    content._id.toString(),
+        userId:       userId.toString(),
+        contentTitle: content.title,
+      },
     });
 
-    // Create pending purchase record
     await Purchase.create({
-      user: userId,
-      content: contentId,
-      amount: content.price,
+      user:                  userId,
+      content:               contentId,
+      amount:                content.price,
       stripePaymentIntentId: paymentIntent.id,
-      status: 'pending'
+      status:                'pending',
     });
 
     res.json({
       clientSecret: paymentIntent.client_secret,
-      amount: content.price
+      amount:       content.price,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-// Stripe webhook handler
+// ─── Cart checkout — multiple items, one PaymentIntent ─────
+exports.createCartPaymentIntent = async (req, res) => {
+  try {
+    const { contentIds } = req.body;
+    const userId = req.mongoUser._id;
+
+    if (!Array.isArray(contentIds) || contentIds.length === 0) {
+      return res.status(400).json({ error: 'contentIds must be a non-empty array' });
+    }
+
+    // Load all requested content items
+    const contents = await Content.find({
+      _id:    { $in: contentIds },
+      status: 'published',
+    });
+
+    if (contents.length !== contentIds.length) {
+      return res.status(404).json({
+        error: 'One or more content items not found or not published',
+      });
+    }
+
+    // Block items the user has already purchased
+    const alreadyPurchased = await Purchase.find({
+      user:    userId,
+      content: { $in: contentIds },
+      status:  'completed',
+    });
+
+    if (alreadyPurchased.length > 0) {
+      const titles = alreadyPurchased.map(p => {
+        const c = contents.find(c => c._id.toString() === p.content.toString());
+        return c?.title ?? p.content;
+      });
+      return res.status(400).json({
+        error: `You have already purchased: ${titles.join(', ')}`,
+      });
+    }
+
+    const totalAmount = contents.reduce((sum, c) => sum + c.price, 0);
+    const totalCents  = Math.round(totalAmount * 100);
+
+    if (totalCents === 0) {
+      return res.status(400).json({ error: 'Cannot create a payment for $0 total' });
+    }
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount:   totalCents,
+      currency: 'usd',
+      metadata: {
+        userId:     userId.toString(),
+        contentIds: contentIds.join(','),
+        itemCount:  String(contents.length),
+        titles:     contents.map(c => c.title).join(' | ').slice(0, 499),
+      },
+    });
+
+    // One pending Purchase record per item, all sharing the same PaymentIntent
+    const purchaseRecords = contents.map(c => ({
+      user:                  userId,
+      content:               c._id,
+      amount:                c.price,
+      stripePaymentIntentId: paymentIntent.id,
+      status:                'pending',
+    }));
+
+    await Purchase.insertMany(purchaseRecords);
+
+    res.json({
+      clientSecret: paymentIntent.client_secret,
+      amount:       totalAmount,
+      itemCount:    contents.length,
+      items: contents.map(c => ({
+        _id:   c._id,
+        title: c.title,
+        price: c.price,
+        type:  c.type,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ─── Stripe webhook ────────────────────────────────────────
 exports.handleWebhook = async (req, res) => {
   const sig = req.headers['stripe-signature'];
   let event;
@@ -76,12 +156,11 @@ exports.handleWebhook = async (req, res) => {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  // Handle the event
   switch (event.type) {
     case 'payment_intent.succeeded':
       await handlePaymentSuccess(event.data.object);
       break;
-    
+
     case 'payment_intent.payment_failed':
       await handlePaymentFailed(event.data.object);
       break;
@@ -93,43 +172,40 @@ exports.handleWebhook = async (req, res) => {
   res.json({ received: true });
 };
 
-// Handle successful payment
+// Handles both single-item and cart PaymentIntents
 const handlePaymentSuccess = async (paymentIntent) => {
   try {
-    const purchase = await Purchase.findOne({
-      stripePaymentIntentId: paymentIntent.id
+    const purchases = await Purchase.find({
+      stripePaymentIntentId: paymentIntent.id,
     });
 
-    if (purchase) {
-      purchase.status = 'completed';
-      await purchase.save();
-      
-      console.log(`Payment completed for purchase ${purchase._id}`);
+    if (purchases.length > 0) {
+      await Purchase.updateMany(
+        { stripePaymentIntentId: paymentIntent.id },
+        { $set: { status: 'completed' } }
+      );
+      console.log(
+        `Payment completed: ${purchases.length} purchase(s) for intent ${paymentIntent.id}`
+      );
     }
   } catch (error) {
     console.error('Error handling payment success:', error);
   }
 };
 
-// Handle failed payment
 const handlePaymentFailed = async (paymentIntent) => {
   try {
-    const purchase = await Purchase.findOne({
-      stripePaymentIntentId: paymentIntent.id
-    });
-
-    if (purchase) {
-      purchase.status = 'failed';
-      await purchase.save();
-      
-      console.log(`Payment failed for purchase ${purchase._id}`);
-    }
+    await Purchase.updateMany(
+      { stripePaymentIntentId: paymentIntent.id },
+      { $set: { status: 'failed' } }
+    );
+    console.log(`Payment failed for intent ${paymentIntent.id}`);
   } catch (error) {
     console.error('Error handling payment failure:', error);
   }
 };
 
-// Get payment status
+// ─── Get payment status ────────────────────────────────────
 exports.getPaymentStatus = async (req, res) => {
   try {
     const { paymentIntentId } = req.params;
@@ -137,7 +213,7 @@ exports.getPaymentStatus = async (req, res) => {
 
     const purchase = await Purchase.findOne({
       stripePaymentIntentId: paymentIntentId,
-      user: userId
+      user:                  userId,
     }).populate('content', 'title description type thumbnailUrl');
 
     if (!purchase) {
@@ -150,17 +226,17 @@ exports.getPaymentStatus = async (req, res) => {
   }
 };
 
-// Admin: Get all payments
+// ─── Admin: all payments ───────────────────────────────────
 exports.getAllPayments = async (req, res) => {
   try {
     const { page = 1, limit = 20, status } = req.query;
-    
+
     const query = {};
     if (status) query.status = status;
 
     const purchases = await Purchase.find(query)
-      .populate('user', 'name email')
-      .populate('content', 'title type')
+      .populate('user',    'name email')
+      .populate('content', 'title type thumbnailUrl')
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ purchasedAt: -1 });
@@ -169,16 +245,16 @@ exports.getAllPayments = async (req, res) => {
 
     res.json({
       purchases,
-      totalPages: Math.ceil(count / limit),
-      currentPage: Number(page),
-      totalPurchases: count
+      totalPages:     Math.ceil(count / limit),
+      currentPage:    Number(page),
+      totalPurchases: count,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-// Admin: Refund payment
+// ─── Admin: refund ─────────────────────────────────────────
 exports.refundPayment = async (req, res) => {
   try {
     const { purchaseId } = req.params;
@@ -190,23 +266,22 @@ exports.refundPayment = async (req, res) => {
     }
 
     if (purchase.status !== 'completed') {
-      return res.status(400).json({ 
-        error: 'Only completed purchases can be refunded' 
+      return res.status(400).json({
+        error: 'Only completed purchases can be refunded',
       });
     }
 
-    // Create refund in Stripe
     const refund = await stripe.refunds.create({
-      payment_intent: purchase.stripePaymentIntentId
+      payment_intent: purchase.stripePaymentIntentId,
     });
 
     if (refund.status === 'succeeded') {
       purchase.status = 'refunded';
       await purchase.save();
 
-      res.json({ 
+      res.json({
         message: 'Refund successful',
-        purchase 
+        purchase,
       });
     } else {
       res.status(400).json({ error: 'Refund failed' });
