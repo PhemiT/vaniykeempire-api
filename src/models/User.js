@@ -32,6 +32,11 @@ const userSchema = new mongoose.Schema({
   updatedAt: {
     type: Date,
     default: Date.now
+  },
+  authProvider: { 
+    type: String, 
+    enum: ['local', 'google'], 
+    default: 'local' 
   }
 });
 

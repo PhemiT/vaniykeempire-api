@@ -17,4 +17,8 @@ router.post('/password-reset/update', authController.updatePassword);
 router.post('/email/resend', authController.resendVerificationEmail);
 router.post('/email/verify', authController.verifyEmail);
 
+// Google OAuth
+router.get('/google', authController.googleLogin);
+router.get('/google/callback', authController.googleCallback);
+
 module.exports = router;

@@ -66,6 +66,69 @@ exports.login = async (req, res) => {
   }
 };
 
+// Google OAuth - Initiate login
+exports.googleLogin = async (req, res) => {
+  try {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${process.env.SUPABASE_CALLBACK_URL}/auth/google/callback`
+      }
+    });
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    // Redirect user to Google's OAuth page
+    res.redirect(data.url);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Google OAuth - Handle callback
+exports.googleCallback = async (req, res) => {
+  try {
+    const { code } = req.query;
+
+    if (!code) {
+      return res.status(400).json({ error: 'Authorization code missing' });
+    }
+
+    // Exchange code for session
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    const { user: supabaseUser, session } = data;
+
+    // Upsert user in MongoDB
+    let user = await User.findOne({ supabaseId: supabaseUser.id });
+
+    if (!user) {
+      user = await User.create({
+        supabaseId: supabaseUser.id,
+        email: supabaseUser.email,
+        name: supabaseUser.user_metadata?.full_name || supabaseUser.email,
+        emailVerified: supabaseUser.email_confirmed_at ? true : false,
+        authProvider: 'google'
+      });
+    }
+
+    // Redirect to frontend with session tokens
+    const redirectUrl = new URL(`${process.env.FRONTEND_URL}/auth/google/success`);
+    redirectUrl.searchParams.set('access_token', session.access_token);
+    redirectUrl.searchParams.set('refresh_token', session.refresh_token);
+
+    res.redirect(redirectUrl.toString());
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 exports.getProfile = async (req, res) => {
   try {
     const user = await User.findOne({ supabaseId: req.user.id });
