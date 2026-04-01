@@ -4,32 +4,38 @@ const purchaseSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: true,
   },
   content: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Content',
-    required: true
+    required: true,
   },
   amount: {
     type: Number,
-    required: true
+    required: true,
   },
-  stripePaymentIntentId: {
-    type: String
+  paystackReference: {
+    type: String,
+  },
+  paypalOrderId: {
+    type: String,
+  },
+  paymentMethod: {
+    type: String,
+    enum: ['paystack', 'paypal'],
   },
   status: {
     type: String,
     enum: ['pending', 'completed', 'failed', 'refunded'],
-    default: 'pending'
+    default: 'pending',
   },
   purchasedAt: {
     type: Date,
-    default: Date.now
-  }
+    default: Date.now,
+  },
 });
 
-// Compound index to prevent duplicate purchases and for quick lookup
 purchaseSchema.index({ user: 1, content: 1 });
 
 module.exports = mongoose.model('Purchase', purchaseSchema);

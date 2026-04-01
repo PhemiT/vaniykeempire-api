@@ -6,7 +6,6 @@ const authRoutes = require('./routes/authRoutes');
 const contentRoutes = require('./routes/contentRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
-const paymentController = require('./controllers/paymentController');
 
 const app = express();
 
@@ -18,20 +17,13 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// Stripe webhook ONLY — must be raw before express.json()
-app.post(
-  '/api/payments/webhook',
-  express.raw({ type: 'application/json' }),
-  paymentController.handleWebhook
-);
-
 // Middleware
 app.use(express.json());
 
 // Database
 connectDB();
 
-// Routes — payment routes now come AFTER express.json()
+// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/content', contentRoutes);
 app.use('/api/categories', categoryRoutes);
