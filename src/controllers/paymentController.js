@@ -111,7 +111,8 @@ exports.createPaymentIntent = async (req, res) => {
       amount: content.price,
     });
   } catch (error) {
-    res.status(error.status || 500).json({ error: error.message });
+    const status = error.status && error.status !== 401 ? error.status : 500;
+    res.status(status).json({ error: error.message });
   }
 };
 
@@ -171,7 +172,8 @@ exports.createCartPaymentIntent = async (req, res) => {
       items: contents.map(c => ({ _id: c._id, title: c.title, price: c.price, type: c.type })),
     });
   } catch (error) {
-    res.status(error.status || 500).json({ error: error.message });
+    const status = error.status && error.status !== 401 ? error.status : 500;
+    res.status(status).json({ error: error.message });
   }
 };
 
@@ -265,7 +267,7 @@ exports.createPaypalOrder = async (req, res) => {
         },
       ],
       application_context: {
-        return_url: `${process.env.FRONTEND_URL}/payment-complete?provider=paypal&contentId=${contentId}`,
+        return_url: `${process.env.FRONTEND_URL}/payment-complete?provider=paypal`,
         cancel_url: `${process.env.FRONTEND_URL}/payment-cancelled`,
         user_action: 'PAY_NOW',
       },
@@ -284,7 +286,8 @@ exports.createPaypalOrder = async (req, res) => {
 
     res.json({ approvalUrl, orderId: order.id, amount: content.price });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    const status = error.status && error.status !== 401 ? error.status : 500;
+    res.status(status).json({ error: error.message });
   }
 };
 
@@ -320,7 +323,7 @@ exports.createPaypalCartOrder = async (req, res) => {
         },
       ],
       application_context: {
-        return_url: `${process.env.FRONTEND_URL}/payment-complete?provider=paypal&contentIds=${contentIds.join(',')}`,
+        return_url: `${process.env.FRONTEND_URL}/payment-complete?provider=paypal`,
         cancel_url: `${process.env.FRONTEND_URL}/payment-cancelled`,
         user_action: 'PAY_NOW',
       },
@@ -347,7 +350,8 @@ exports.createPaypalCartOrder = async (req, res) => {
       items: contents.map(c => ({ _id: c._id, title: c.title, price: c.price, type: c.type })),
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    const status = error.status && error.status !== 401 ? error.status : 500;
+    res.status(status).json({ error: error.message });
   }
 };
 
