@@ -29,6 +29,11 @@ app.use('/api/content', contentRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/payments', paymentRoutes);
 
+//Health check
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' })
+})
+
 // Error handling
 app.use((err, req, res, next) => {
   console.error(err.stack);
