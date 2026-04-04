@@ -196,7 +196,7 @@ exports.requestPasswordReset = async (req, res) => {
     const { email } = req.body;
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${process.env.FRONTEND_URL}/verify-email`,
+      redirectTo: `${process.env.FRONTEND_URL}/reset-password`,
     });
 
     if (error) {
