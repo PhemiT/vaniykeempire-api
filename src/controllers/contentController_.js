@@ -69,7 +69,7 @@ exports.updateContent = async (req, res) => {
       if (req.files.file) {
         // Delete old file from Cloudinary
         if (content.filePublicId) {
-          const resourceType = content.type === 'pdf' ? 'image' : 'video';
+          const resourceType = content.type === 'pdf' ? 'raw' : 'video';
           await cloudinary.uploader.destroy(content.filePublicId, {
             resource_type: resourceType
           });
@@ -131,7 +131,7 @@ exports.deleteContent = async (req, res) => {
 
     // Delete files from Cloudinary
     if (content.filePublicId) {
-      const resourceType = content.type === 'pdf' ? 'image' : 'video';
+      const resourceType = content.type === 'pdf' ? 'raw' : 'video';
       await cloudinary.uploader.destroy(content.filePublicId, {
         resource_type: resourceType
       });

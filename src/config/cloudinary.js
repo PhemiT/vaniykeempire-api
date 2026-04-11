@@ -27,7 +27,7 @@ const contentStorage = new CloudinaryStorage({
       resourceType = 'video';
     } else if (file.mimetype === 'application/pdf') {
       folder = 'content/pdfs';
-      resourceType = 'image';
+      resourceType = 'raw';
     }
 
     return {
@@ -40,7 +40,7 @@ const contentStorage = new CloudinaryStorage({
 const uploadContent = multer({ 
   storage: contentStorage,
   limits: {
-    fileSize: 500 * 1024 * 1024 // 500MB limit
+    fileSize: 2 * 1024 * 1024 * 1024 // 2GB limit
   }
 });
 
