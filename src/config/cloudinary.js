@@ -105,10 +105,24 @@ const uploadVideo = multer({
   },
 });
 
+function generateUploadSignature(folder = 'content/videos') {
+  const timestamp = Math.round(Date.now() / 1000);
+  const params    = { folder, timestamp,};
+  const signature = cloudinary.utils.api_sign_request(params, process.env.CLOUDINARY_API_SECRET);
+  return {
+    signature,
+    timestamp,
+    folder,
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+    apiKey:    process.env.CLOUDINARY_API_KEY,
+  };
+}
+
 module.exports = {
   cloudinary,
   uploadContent,
   uploadVideo,
   uploadVideoChunked,
   uploadThumbnailFromDisk,
+  generateUploadSignature,
 };

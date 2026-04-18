@@ -1,7 +1,7 @@
 const Content  = require('../models/Content');
 const Purchase = require('../models/Purchase');
 const Category = require('../models/Category');
-const { cloudinary, uploadVideoChunked, uploadThumbnailFromDisk } = require('../config/cloudinary');
+const { cloudinary, uploadVideoChunked, uploadThumbnailFromDisk, generateUploadSignature } = require('../config/cloudinary');
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -27,6 +27,84 @@ async function resolveThumbnail(files, fromDisk = false) {
   // Standard CloudinaryStorage — path and filename are already set by multer
   return { thumbnailUrl: thumb.path, thumbnailPublicId: thumb.filename };
 }
+
+exports.getUploadSignature = (req, res) => {
+  try {
+    const sig = generateUploadSignature();
+    res.json(sig);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.createContentDirect = async (req, res) => {
+  try {
+    const { title, description, type, category, price, status, tags, fileUrl, filePublicId, fileSize, duration } = req.body;
+
+    const fromDisk = false;
+    const { thumbnailUrl, thumbnailPublicId } = await resolveThumbnail(req.files, fromDisk);
+
+    const content = await Content.create({
+      title, description, type, category, price,
+      fileUrl, filePublicId, fileSize: fileSize ? Number(fileSize) : null,
+      duration: duration ? Number(duration) : null,
+      thumbnailUrl, thumbnailPublicId,
+      status: status || 'draft',
+      tags:   tags ? JSON.parse(tags) : [],
+      createdBy: req.mongoUser._id,
+    });
+
+    await content.populate('createdBy', 'name email');
+    res.status(201).json({ message: 'Content created successfully', content });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.updateContentDirect = async (req, res) => {
+  try {
+    const { contentId } = req.params;
+    const { fileUrl, filePublicId, fileSize, duration, ...updates } = req.body;
+
+    const content = await Content.findById(contentId);
+    if (!content) return res.status(404).json({ error: 'Content not found' });
+
+    if (fileUrl) {
+      // Delete old file from Cloudinary
+      if (content.filePublicId) {
+        await cloudinary.uploader.destroy(content.filePublicId, { resource_type: 'video' });
+      }
+      content.fileUrl      = fileUrl;
+      content.filePublicId = filePublicId;
+      content.fileSize     = fileSize ? Number(fileSize) : content.fileSize;
+      content.duration     = duration ? Number(duration) : content.duration;
+    }
+
+    if (req.files?.thumbnail) {
+      if (content.thumbnailPublicId) {
+        await cloudinary.uploader.destroy(content.thumbnailPublicId, { resource_type: 'image' });
+      }
+      const { thumbnailUrl, thumbnailPublicId } = await resolveThumbnail(req.files, false);
+      content.thumbnailUrl      = thumbnailUrl;
+      content.thumbnailPublicId = thumbnailPublicId;
+    }
+
+    Object.keys(updates).forEach((key) => {
+      if (key === 'tags' && typeof updates[key] === 'string') {
+        content[key] = JSON.parse(updates[key]);
+      } else {
+        content[key] = updates[key];
+      }
+    });
+
+    content.updatedAt = new Date();
+    await content.save();
+    await content.populate('createdBy', 'name email');
+    res.json({ message: 'Content updated successfully', content });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
 
 // ─── Admin: Create content ─────────────────────────────────────────────────
 exports.createContent = async (req, res) => {

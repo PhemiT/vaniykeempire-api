@@ -63,6 +63,24 @@ router.put(
   contentController.updateContent
 );
 
+router.post(
+  '/direct',
+  authenticate,
+  requireAdmin,
+  uploadContent.fields([{ name: 'thumbnail', maxCount: 1 }]),
+  contentController.createContentDirect
+);
+
+router.put(
+  '/direct/:contentId',
+  authenticate,
+  requireAdmin,
+  uploadContent.fields([{ name: 'thumbnail', maxCount: 1 }]),
+  contentController.updateContentDirect
+);
+
+router.get('/upload-signature', authenticate, requireAdmin, contentController.getUploadSignature);
+
 router.delete('/:contentId', authenticate, requireAdmin, contentController.deleteContent);
 router.get('/admin/:contentId', authenticate, requireAdmin, contentController.getContentAdmin);
 router.get('/:contentId', contentController.getContent);
