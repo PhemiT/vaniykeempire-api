@@ -15,6 +15,9 @@ const purchaseSchema = new mongoose.Schema({
     type: Number,
     required: true,
   },
+  stripePaymentIntentId: {   // ← added
+    type: String,
+  },
   paystackReference: {
     type: String,
   },
@@ -23,7 +26,7 @@ const purchaseSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['paystack', 'paypal'],
+    enum: ['stripe', 'paystack', 'paypal'],   // ← stripe added
   },
   status: {
     type: String,
@@ -35,7 +38,5 @@ const purchaseSchema = new mongoose.Schema({
     default: Date.now,
   },
 });
-
 purchaseSchema.index({ user: 1, content: 1 });
-
 module.exports = mongoose.model('Purchase', purchaseSchema);

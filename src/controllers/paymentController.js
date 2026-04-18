@@ -1,3 +1,4 @@
+const stripe = require('../config/stripe');
 const paystack = require('../config/paystack');
 const axios = require('axios');
 const Content = require('../models/Content');
@@ -60,12 +61,15 @@ const validateItems = async (contentIds, userId) => {
   return contents;
 };
 
-// ─── Paystack: single item ─────────────────────────────────
-exports.createPaymentIntent = async (req, res) => {
+// ═══════════════════════════════════════════════════════════
+// STRIPE
+// ═══════════════════════════════════════════════════════════
+
+// ─── Stripe: single item ───────────────────────────────────
+exports.createStripePaymentIntent = async (req, res) => {
   try {
     const { contentId } = req.body;
     const userId = req.mongoUser._id;
-    const userEmail = req.mongoUser.email;
 
     const content = await Content.findOne({ _id: contentId, status: 'published' });
     if (!content) return res.status(404).json({ error: 'Content not found' });
@@ -75,6 +79,151 @@ exports.createPaymentIntent = async (req, res) => {
       content: contentId,
       status: 'completed',
     });
+    if (existingPurchase) {
+      return res.status(400).json({ error: 'You have already purchased this content' });
+    }
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(content.price * 100),
+      currency: 'usd',
+      // payment_method_types omitted so Stripe automatically enables
+      // card, Apple Pay, and Google Pay based on the customer's device
+      metadata: {
+        contentId:    content._id.toString(),
+        userId:       userId.toString(),
+        contentTitle: content.title,
+      },
+    });
+
+    await Purchase.create({
+      user:                  userId,
+      content:               contentId,
+      amount:                content.price,
+      stripePaymentIntentId: paymentIntent.id,
+      paymentMethod:         'stripe',
+      status:                'pending',
+    });
+
+    res.json({ clientSecret: paymentIntent.client_secret, amount: content.price });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ─── Stripe: cart ──────────────────────────────────────────
+exports.createStripeCartPaymentIntent = async (req, res) => {
+  try {
+    const { contentIds } = req.body;
+    const userId = req.mongoUser._id;
+
+    if (!Array.isArray(contentIds) || contentIds.length === 0) {
+      return res.status(400).json({ error: 'contentIds must be a non-empty array' });
+    }
+
+    const contents = await validateItems(contentIds, userId);
+
+    const totalAmount = contents.reduce((sum, c) => sum + c.price, 0);
+    const totalCents  = Math.round(totalAmount * 100);
+
+    if (totalCents === 0) {
+      return res.status(400).json({ error: 'Cannot create a payment for $0 total' });
+    }
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount:   totalCents,
+      currency: 'usd',
+      metadata: {
+        userId:     userId.toString(),
+        contentIds: contentIds.join(','),
+        itemCount:  String(contents.length),
+        titles:     contents.map(c => c.title).join(' | ').slice(0, 499),
+      },
+    });
+
+    const purchaseRecords = contents.map(c => ({
+      user:                  userId,
+      content:               c._id,
+      amount:                c.price,
+      stripePaymentIntentId: paymentIntent.id,
+      paymentMethod:         'stripe',
+      status:                'pending',
+    }));
+
+    await Purchase.insertMany(purchaseRecords);
+
+    res.json({
+      clientSecret: paymentIntent.client_secret,
+      amount:       totalAmount,
+      itemCount:    contents.length,
+      items: contents.map(c => ({ _id: c._id, title: c.title, price: c.price, type: c.type })),
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ─── Stripe: webhook ───────────────────────────────────────
+exports.handleStripeWebhook = async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error('Stripe webhook signature failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  switch (event.type) {
+    case 'payment_intent.succeeded':
+      await handleStripePaymentSuccess(event.data.object);
+      break;
+    case 'payment_intent.payment_failed':
+      await handleStripePaymentFailed(event.data.object);
+      break;
+    default:
+      break;
+  }
+
+  res.json({ received: true });
+};
+
+const handleStripePaymentSuccess = async (paymentIntent) => {
+  try {
+    await Purchase.updateMany(
+      { stripePaymentIntentId: paymentIntent.id },
+      { $set: { status: 'completed' } }
+    );
+  } catch (error) {
+    console.error('Error handling Stripe payment success:', error);
+  }
+};
+
+const handleStripePaymentFailed = async (paymentIntent) => {
+  try {
+    await Purchase.updateMany(
+      { stripePaymentIntentId: paymentIntent.id },
+      { $set: { status: 'failed' } }
+    );
+  } catch (error) {
+    console.error('Error handling Stripe payment failure:', error);
+  }
+};
+
+// ═══════════════════════════════════════════════════════════
+// PAYSTACK
+// ═══════════════════════════════════════════════════════════
+
+exports.createPaymentIntent = async (req, res) => {
+  try {
+    const { contentId } = req.body;
+    const userId = req.mongoUser._id;
+    const userEmail = req.mongoUser.email;
+
+    const content = await Content.findOne({ _id: contentId, status: 'published' });
+    if (!content) return res.status(404).json({ error: 'Content not found' });
+
+    const existingPurchase = await Purchase.findOne({ user: userId, content: contentId, status: 'completed' });
     if (existingPurchase) {
       return res.status(400).json({ error: 'You have already purchased this content' });
     }
@@ -105,18 +254,13 @@ exports.createPaymentIntent = async (req, res) => {
       status: 'pending',
     });
 
-    res.json({
-      authorizationUrl: paystackRes.data.authorization_url,
-      reference,
-      amount: content.price,
-    });
+    res.json({ authorizationUrl: paystackRes.data.authorization_url, reference, amount: content.price });
   } catch (error) {
     const status = error.status && error.status !== 401 ? error.status : 500;
     res.status(status).json({ error: error.message });
   }
 };
 
-// ─── Paystack: cart ────────────────────────────────────────
 exports.createCartPaymentIntent = async (req, res) => {
   try {
     const { contentIds } = req.body;
@@ -128,7 +272,6 @@ exports.createCartPaymentIntent = async (req, res) => {
     }
 
     const contents = await validateItems(contentIds, userId);
-
     const totalAmount = contents.reduce((sum, c) => sum + c.price, 0);
     const amountKobo = Math.round(totalAmount * 100);
 
@@ -177,7 +320,6 @@ exports.createCartPaymentIntent = async (req, res) => {
   }
 };
 
-// ─── Paystack: verify (called after redirect back) ─────────
 exports.verifyPaystackPayment = async (req, res) => {
   try {
     const { reference } = req.params;
@@ -209,7 +351,6 @@ exports.verifyPaystackPayment = async (req, res) => {
   }
 };
 
-// ─── Paystack: webhook ─────────────────────────────────────
 exports.handlePaystackWebhook = async (req, res) => {
   const crypto = require('crypto');
   const hash = crypto
@@ -234,7 +375,10 @@ exports.handlePaystackWebhook = async (req, res) => {
   res.json({ received: true });
 };
 
-// ─── PayPal: create order — single item ───────────────────
+// ═══════════════════════════════════════════════════════════
+// PAYPAL
+// ═══════════════════════════════════════════════════════════
+
 exports.createPaypalOrder = async (req, res) => {
   try {
     const { contentId } = req.body;
@@ -243,29 +387,18 @@ exports.createPaypalOrder = async (req, res) => {
     const content = await Content.findOne({ _id: contentId, status: 'published' });
     if (!content) return res.status(404).json({ error: 'Content not found' });
 
-    const existingPurchase = await Purchase.findOne({
-      user: userId,
-      content: contentId,
-      status: 'completed',
-    });
+    const existingPurchase = await Purchase.findOne({ user: userId, content: contentId, status: 'completed' });
     if (existingPurchase) {
       return res.status(400).json({ error: 'You have already purchased this content' });
     }
 
     const order = await paypalRequest('POST', '/v2/checkout/orders', {
       intent: 'CAPTURE',
-      purchase_units: [
-        {
-          amount: {
-            currency_code: 'USD',
-            value: content.price.toFixed(2),
-          },
-          description: content.title,
-          payee: {
-            email_address: process.env.PAYPAL_RECEIVER_EMAIL,
-          },
-        },
-      ],
+      purchase_units: [{
+        amount: { currency_code: 'USD', value: content.price.toFixed(2) },
+        description: content.title,
+        payee: { email_address: process.env.PAYPAL_RECEIVER_EMAIL },
+      }],
       application_context: {
         return_url: `${process.env.FRONTEND_URL}/payment-complete?provider=paypal`,
         cancel_url: `${process.env.FRONTEND_URL}/payment-cancelled`,
@@ -283,7 +416,6 @@ exports.createPaypalOrder = async (req, res) => {
     });
 
     const approvalUrl = order.links.find(l => l.rel === 'approve')?.href;
-
     res.json({ approvalUrl, orderId: order.id, amount: content.price });
   } catch (error) {
     const status = error.status && error.status !== 401 ? error.status : 500;
@@ -291,7 +423,6 @@ exports.createPaypalOrder = async (req, res) => {
   }
 };
 
-// ─── PayPal: create order — cart ──────────────────────────
 exports.createPaypalCartOrder = async (req, res) => {
   try {
     const { contentIds } = req.body;
@@ -310,18 +441,11 @@ exports.createPaypalCartOrder = async (req, res) => {
 
     const order = await paypalRequest('POST', '/v2/checkout/orders', {
       intent: 'CAPTURE',
-      purchase_units: [
-        {
-          amount: {
-            currency_code: 'USD',
-            value: totalAmount.toFixed(2),
-          },
-          description: `${contents.length} item(s)`,
-          payee: {
-            email_address: process.env.PAYPAL_RECEIVER_EMAIL,
-          },
-        },
-      ],
+      purchase_units: [{
+        amount: { currency_code: 'USD', value: totalAmount.toFixed(2) },
+        description: `${contents.length} item(s)`,
+        payee: { email_address: process.env.PAYPAL_RECEIVER_EMAIL },
+      }],
       application_context: {
         return_url: `${process.env.FRONTEND_URL}/payment-complete?provider=paypal`,
         cancel_url: `${process.env.FRONTEND_URL}/payment-cancelled`,
@@ -341,7 +465,6 @@ exports.createPaypalCartOrder = async (req, res) => {
     await Purchase.insertMany(purchaseRecords);
 
     const approvalUrl = order.links.find(l => l.rel === 'approve')?.href;
-
     res.json({
       approvalUrl,
       orderId: order.id,
@@ -355,7 +478,6 @@ exports.createPaypalCartOrder = async (req, res) => {
   }
 };
 
-// ─── PayPal: capture order (called after redirect back) ───
 exports.capturePaypalOrder = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -387,7 +509,10 @@ exports.capturePaypalOrder = async (req, res) => {
   }
 };
 
-// ─── Get payment status ────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// SHARED
+// ═══════════════════════════════════════════════════════════
+
 exports.getPaymentStatus = async (req, res) => {
   try {
     const { paymentIntentId } = req.params;
@@ -395,6 +520,7 @@ exports.getPaymentStatus = async (req, res) => {
 
     const purchase = await Purchase.findOne({
       $or: [
+        { stripePaymentIntentId: paymentIntentId },
         { paystackReference: paymentIntentId },
         { paypalOrderId: paymentIntentId },
       ],
@@ -409,7 +535,10 @@ exports.getPaymentStatus = async (req, res) => {
   }
 };
 
-// ─── Admin: all payments ───────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+// ADMIN
+// ═══════════════════════════════════════════════════════════
+
 exports.getAllPayments = async (req, res) => {
   try {
     const { page = 1, limit = 20, status } = req.query;
@@ -436,7 +565,6 @@ exports.getAllPayments = async (req, res) => {
   }
 };
 
-// ─── Admin: refund (Paystack only) ────────────────────────
 exports.refundPayment = async (req, res) => {
   try {
     const { purchaseId } = req.params;
@@ -451,17 +579,24 @@ exports.refundPayment = async (req, res) => {
       return res.status(400).json({ error: 'PayPal refunds must be processed manually via the PayPal dashboard' });
     }
 
-    const refundRes = await paystack.refund({
-      transaction: purchase.paystackReference,
-    });
+    if (purchase.paymentMethod === 'stripe') {
+      const refund = await stripe.refunds.create({ payment_intent: purchase.stripePaymentIntentId });
+      if (refund.status === 'succeeded') {
+        purchase.status = 'refunded';
+        await purchase.save();
+        return res.json({ message: 'Refund successful', purchase });
+      }
+      return res.status(400).json({ error: 'Stripe refund failed' });
+    }
 
+    // Paystack
+    const refundRes = await paystack.refund({ transaction: purchase.paystackReference });
     if (refundRes.status) {
       purchase.status = 'refunded';
       await purchase.save();
-      res.json({ message: 'Refund successful', purchase });
-    } else {
-      res.status(400).json({ error: 'Refund failed' });
+      return res.json({ message: 'Refund successful', purchase });
     }
+    res.status(400).json({ error: 'Refund failed' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
