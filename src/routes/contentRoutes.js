@@ -6,7 +6,6 @@ const { uploadContent, uploadVideo } = require('../config/cloudinary');
 
 // ─── Public routes ─────────────────────────────────────────────────────────
 router.get('/', contentController.listContent);
-router.get('/:contentId', contentController.getContent);
 
 // ─── User routes (authenticated) ───────────────────────────────────────────
 router.get('/user/purchases', authenticate, contentController.getUserPurchases);
@@ -65,5 +64,7 @@ router.put(
 );
 
 router.delete('/:contentId', authenticate, requireAdmin, contentController.deleteContent);
+router.get('/admin/:contentId', authenticate, requireAdmin, contentController.getContentAdmin);
+router.get('/:contentId', contentController.getContent);
 
 module.exports = router;

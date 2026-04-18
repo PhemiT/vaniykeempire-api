@@ -326,3 +326,15 @@ exports.getAllContent = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+exports.getContentAdmin = async (req, res) => {
+  try {
+    const { contentId } = req.params;
+    const content = await Content.findById(contentId)
+      .populate('createdBy', 'name email');
+    if (!content) return res.status(404).json({ error: 'Content not found' });
+    res.json({ content });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
