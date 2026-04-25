@@ -3,69 +3,72 @@ const mongoose = require('mongoose');
 const contentSchema = new mongoose.Schema({
   title: {
     type: String,
-    required: true
+    required: true,
   },
   description: {
     type: String,
-    required: true
+    required: true,
   },
   type: {
     type: String,
     enum: ['pdf', 'video', 'audio'],
-    required: true
+    required: true,
   },
   category: {
     type: String,
-    required: true
+    required: true,
   },
   price: {
     type: Number,
     required: true,
-    min: 0
+    min: 0,
   },
   fileUrl: {
     type: String,
-    required: true
+    required: true,
   },
   filePublicId: {
     type: String,
-    required: true
+    required: true,
   },
   thumbnailUrl: {
-    type: String
+    type: String,
   },
   thumbnailPublicId: {
-    type: String
+    type: String,
+  },
+  // HLS master playlist R2 key (e.g. videos/{contentId}/hls/master.m3u8).
+  // Populated by the transcode-complete webhook once GitHub Actions finishes.
+  hlsMasterUrl: {
+    type: String,
   },
   duration: {
-    // For video/audio - in seconds
-    type: Number
+    // For video/audio — in seconds
+    type: Number,
   },
   fileSize: {
     // In bytes
-    type: Number
+    type: Number,
   },
   status: {
     type: String,
-    enum: ['draft', 'published'],
-    default: 'draft'
+    enum: ['draft', 'published', 'processing'],
+    default: 'draft',
   },
-  tags: [{
-    type: String
-  }],
+  tags: [{ type: String }],
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: true,
   },
   createdAt: {
     type: Date,
-    default: Date.now
+    default: Date.now,
   },
   updatedAt: {
     type: Date,
-    default: Date.now
-  }
+    default: Date.now,
+  },
 });
 
 contentSchema.index({ title: 'text', description: 'text', tags: 'text' });
