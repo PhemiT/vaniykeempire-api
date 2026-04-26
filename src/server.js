@@ -20,7 +20,11 @@ app.use(cors({
 // Pre-flight requests for all routes (Express 5 / path-to-regexp v8 syntax)
 app.options('/{*path}', cors());
 
-// ─── Body limits (must be set before routes) ───────────────────────────────
+// ─── Stripe webhook (MUST be before express.json()) ────────────────────────
+// Stripe signature verification requires the raw request buffer.
+app.use('/api/payments/webhook/stripe', express.raw({ type: 'application/json' }));
+
+// ─── Body parsers ──────────────────────────────────────────────────────────
 // Large enough to not interfere with multipart/form-data metadata.
 // The actual file bytes are handled by multer, not these parsers.
 app.use(express.json({ limit: '50mb' }));
@@ -50,13 +54,12 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || 'Something went wrong!' });
 });
 
-// ─── Server with extended timeouts for large uploads ───────────────────────
 const PORT   = process.env.PORT || 3000;
 const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-// 30 minutes — covers a 1.3GB upload on a slow connection + Cloudinary chunked transfer
+// 30 minutes
 const THIRTY_MINUTES = 30 * 60 * 1000;
 
 server.timeout          = THIRTY_MINUTES; // total request timeout
