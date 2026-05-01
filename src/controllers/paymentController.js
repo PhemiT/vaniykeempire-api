@@ -3,6 +3,190 @@ const paystack = require('../config/paystack');
 const axios = require('axios');
 const Content = require('../models/Content');
 const Purchase = require('../models/Purchase');
+const Bundle = require('../models/Bundle');
+
+const prepareBundleCheckout = async (bundleId, userId) => {
+  const Bundle  = require('../models/Bundle');
+ 
+  const bundle = await Bundle.findOne({ _id: bundleId, status: 'published' })
+    .populate('items', 'price title type');
+  if (!bundle) throw { status: 404, message: 'Bundle not found' };
+ 
+  // Find which items the user already owns
+  const existingPurchases = await Purchase.find({
+    user:    userId,
+    content: { $in: bundle.items.map(i => i._id) },
+    status:  'completed',
+  }).select('content');
+ 
+  const ownedIds   = new Set(existingPurchases.map(p => p.content.toString()));
+  const itemsToBuy = bundle.items.filter(i => !ownedIds.has(i._id.toString()));
+ 
+  if (itemsToBuy.length === 0) {
+    throw { status: 400, message: 'You already own all items in this bundle' };
+  }
+ 
+  // Pro-rated amount — same logic as bundleController.purchaseBundle
+  const totalOriginal  = bundle.originalPrice ||
+    bundle.items.reduce((s, i) => s + i.price, 0);
+  const ownedOriginal  = bundle.items
+    .filter(i => ownedIds.has(i._id.toString()))
+    .reduce((sum, i) => sum + i.price, 0);
+  const discountRatio  = totalOriginal > 0 ? bundle.price / totalOriginal : 1;
+  const chargeAmount   = Math.max(0, (totalOriginal - ownedOriginal) * discountRatio);
+ 
+  // Round to 2 dp to avoid floating-point drift
+  const chargeRounded = Math.round(chargeAmount * 100) / 100;
+ 
+  if (chargeRounded === 0) {
+    throw { status: 400, message: 'Nothing to charge — you already own all items in this bundle' };
+  }
+ 
+  return { bundle, itemsToBuy, chargeAmount: chargeRounded };
+};
+ 
+// ─── Paystack: bundle checkout ────────────────────────────────────────────────
+exports.createBundlePaymentIntent = async (req, res) => {
+  try {
+    const { bundleId } = req.body;
+    const userId    = req.mongoUser._id;
+    const userEmail = req.mongoUser.email;
+ 
+    const { bundle, itemsToBuy, chargeAmount } = await prepareBundleCheckout(bundleId, userId);
+ 
+    const amountKobo = Math.round(chargeAmount * 100);
+    const reference  = `ps_bundle_${userId}_${bundleId}_${Date.now()}`;
+ 
+    const paystackRes = await paystack.initializeTransaction({
+      email:    userEmail,
+      amount:   amountKobo,
+      currency: 'NGN',
+      reference,
+      metadata: {
+        bundleId:  bundle._id.toString(),
+        userId:    userId.toString(),
+        cartType:  'bundle',
+        contentIds: itemsToBuy.map(i => i._id.toString()).join(','),
+        title:     bundle.title,
+      },
+      callback_url: `${process.env.FRONTEND_URL}/payment-complete?ref=${reference}`,
+    });
+ 
+    // Create one pending Purchase per item being bought
+    const purchaseRecords = itemsToBuy.map(item => ({
+      user:               userId,
+      content:            item._id,
+      amount:             Math.round((chargeAmount / itemsToBuy.length) * 100) / 100,
+      paystackReference:  reference,
+      paymentMethod:      'paystack',
+      status:             'pending',
+    }));
+    await Purchase.insertMany(purchaseRecords);
+ 
+    res.json({
+      authorizationUrl: paystackRes.data.authorization_url,
+      reference,
+      amount:    chargeAmount,
+      itemCount: itemsToBuy.length,
+      items:     itemsToBuy.map(i => ({ _id: i._id, title: i.title, price: i.price, type: i.type })),
+    });
+  } catch (error) {
+    const status = error.status && error.status !== 401 ? error.status : 500;
+    res.status(status).json({ error: error.message });
+  }
+};
+ 
+// ─── PayPal: bundle checkout ──────────────────────────────────────────────────
+exports.createBundlePaypalOrder = async (req, res) => {
+  try {
+    const { bundleId } = req.body;
+    const userId = req.mongoUser._id;
+ 
+    const { bundle, itemsToBuy, chargeAmount } = await prepareBundleCheckout(bundleId, userId);
+ 
+    const order = await paypalRequest('POST', '/v2/checkout/orders', {
+      intent: 'CAPTURE',
+      purchase_units: [{
+        amount: { currency_code: 'USD', value: chargeAmount.toFixed(2) },
+        description: bundle.title,
+        payee: { email_address: process.env.PAYPAL_RECEIVER_EMAIL },
+      }],
+      application_context: {
+        return_url: `${process.env.FRONTEND_URL}/payment-complete?provider=paypal`,
+        cancel_url: `${process.env.FRONTEND_URL}/payment-cancelled`,
+        user_action: 'PAY_NOW',
+      },
+    });
+ 
+    const purchaseRecords = itemsToBuy.map(item => ({
+      user:          userId,
+      content:       item._id,
+      amount:        Math.round((chargeAmount / itemsToBuy.length) * 100) / 100,
+      paypalOrderId: order.id,
+      paymentMethod: 'paypal',
+      status:        'pending',
+    }));
+    await Purchase.insertMany(purchaseRecords);
+ 
+    const approvalUrl = order.links.find(l => l.rel === 'approve')?.href;
+    res.json({
+      approvalUrl,
+      orderId:   order.id,
+      amount:    chargeAmount,
+      itemCount: itemsToBuy.length,
+      items:     itemsToBuy.map(i => ({ _id: i._id, title: i.title, price: i.price, type: i.type })),
+    });
+  } catch (error) {
+    const status = error.status && error.status !== 401 ? error.status : 500;
+    res.status(status).json({ error: error.message });
+  }
+};
+
+exports.createBundleStripePaymentIntent = async (req, res) => {
+  try {
+    const { bundleId } = req.body;
+    const userId = req.mongoUser._id;
+
+    const { bundle, itemsToBuy, chargeAmount } = await prepareBundleCheckout(bundleId, userId);
+
+    const amountCents = Math.round(chargeAmount * 100);
+    if (amountCents === 0) {
+      return res.status(400).json({ error: 'Nothing to charge' });
+    }
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount:   amountCents,
+      currency: 'usd',
+      metadata: {
+        bundleId:   bundle._id.toString(),
+        userId:     userId.toString(),
+        cartType:   'bundle',
+        contentIds: itemsToBuy.map(i => i._id.toString()).join(','),
+        title:      bundle.title,
+      },
+    });
+
+    const purchaseRecords = itemsToBuy.map(item => ({
+      user:                  userId,
+      content:               item._id,
+      amount:                Math.round((chargeAmount / itemsToBuy.length) * 100) / 100,
+      stripePaymentIntentId: paymentIntent.id,
+      paymentMethod:         'stripe',
+      status:                'pending',
+    }));
+    await Purchase.insertMany(purchaseRecords);
+
+    res.json({
+      clientSecret: paymentIntent.client_secret,
+      amount:       chargeAmount,
+      itemCount:    itemsToBuy.length,
+      items:        itemsToBuy.map(i => ({ _id: i._id, title: i.title, price: i.price, type: i.type })),
+    });
+  } catch (error) {
+    const status = error.status && error.status !== 401 ? error.status : 500;
+    res.status(status).json({ error: error.message });
+  }
+};
 
 // ─── PayPal helpers ────────────────────────────────────────
 const getPaypalAccessToken = async () => {

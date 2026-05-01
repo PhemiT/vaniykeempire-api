@@ -6,6 +6,9 @@ const authRoutes     = require('./routes/authRoutes');
 const contentRoutes  = require('./routes/contentRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
 const paymentRoutes  = require('./routes/paymentRoutes');
+const commentsRoutes = require('./routes/commentsRoutes');
+const bundlesRoutes = require('./routes/bundleRoutes');
+const aboutRoutes = require('./routes/aboutRoutes')
 
 const app = express();
 
@@ -23,6 +26,7 @@ app.options('/{*path}', cors());
 // ─── Stripe webhook (MUST be before express.json()) ────────────────────────
 // Stripe signature verification requires the raw request buffer.
 app.use('/api/payments/webhook/stripe', express.raw({ type: 'application/json' }));
+app.use('/api/payments/webhook/paystack', express.raw({ type: 'application/json' }));
 
 // ─── Body parsers ──────────────────────────────────────────────────────────
 // Large enough to not interfere with multipart/form-data metadata.
@@ -38,6 +42,9 @@ app.use('/api/auth',       authRoutes);
 app.use('/api/content',    contentRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/payments',   paymentRoutes);
+app.use('/api/about',   aboutRoutes);
+app.use('/api/bundles',   bundlesRoutes);
+app.use('/api',           commentsRoutes);
 
 // ─── Health check ──────────────────────────────────────────────────────────
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));

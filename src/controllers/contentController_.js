@@ -481,6 +481,59 @@ exports.getUserPurchases = async (req, res) => {
   }
 };
 
+// ─── Public: Increment view count ─────────────────
+// Add to contentController.js
+exports.incrementView = async (req, res) => {
+  try {
+    const { contentId } = req.params;
+    await Content.findByIdAndUpdate(contentId, { $inc: { views: 1 } });
+    res.json({ message: 'View recorded' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ─── Admin: Set view count ───────────────────────
+exports.setViews = async (req, res) => {
+  try {
+    const { contentId } = req.params;
+    const { views } = req.body;
+
+    if (typeof views !== 'number' || views < 0) {
+      return res.status(400).json({ error: 'views must be a non-negative number' });
+    }
+
+    const content = await Content.findByIdAndUpdate(
+      contentId,
+      { views, updatedAt: new Date() },
+      { new: true }
+    );
+    if (!content) return res.status(404).json({ error: 'Content not found' });
+
+    res.json({ message: 'View count updated', views: content.views });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ─── Admin: Reset view count to 0 ───────────────
+exports.resetViews = async (req, res) => {
+  try {
+    const { contentId } = req.params;
+
+    const content = await Content.findByIdAndUpdate(
+      contentId,
+      { views: 0, updatedAt: new Date() },
+      { new: true }
+    );
+    if (!content) return res.status(404).json({ error: 'Content not found' });
+
+    res.json({ message: 'View count reset', views: 0 });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 // ─── Admin: Get all content (including drafts) ────────────────────────────
 exports.getAllContent = async (req, res) => {
   try {

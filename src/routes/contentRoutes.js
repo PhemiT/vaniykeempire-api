@@ -87,4 +87,9 @@ router.put(
 router.delete('/:contentId', authenticate, requireAdmin, contentController.deleteContent);
 router.get('/:contentId', contentController.getContent);
 
+// Views 
+router.post('/:contentId/view', contentController.incrementView);
+router.patch('/admin/:contentId/views', authenticate, requireAdmin, contentController.setViews);
+router.delete('/admin/:contentId/views', authenticate, requireAdmin, contentController.resetViews);
+
 module.exports = router;

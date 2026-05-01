@@ -4,8 +4,8 @@ const paymentController = require('../controllers/paymentController');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 
 // Webhooks — raw body required, no auth
-router.post('/webhook/stripe',   express.raw({ type: 'application/json' }), paymentController.handleStripeWebhook);
-router.post('/webhook/paystack', express.raw({ type: 'application/json' }), paymentController.handlePaystackWebhook);
+router.post('/webhook/stripe', paymentController.handleStripeWebhook);
+router.post('/webhook/paystack', paymentController.handlePaystackWebhook);
 
 // User: Stripe
 router.post('/stripe/create-payment-intent',   authenticate, paymentController.createStripePaymentIntent);
@@ -23,6 +23,10 @@ router.post('/paypal/capture/:orderId',        authenticate, paymentController.c
 
 // Shared
 router.get('/status/:paymentIntentId',         authenticate, paymentController.getPaymentStatus);
+
+router.post('/bundle/paystack', authenticate, paymentController.createBundlePaymentIntent);
+router.post('/bundle/paypal',   authenticate, paymentController.createBundlePaypalOrder);
+router.post('/bundle/stripe', authenticate, paymentController.createBundleStripePaymentIntent)
 
 // Admin
 router.get('/admin/all',                       authenticate, requireAdmin, paymentController.getAllPayments);
