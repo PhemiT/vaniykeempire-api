@@ -250,3 +250,46 @@ exports.purchaseBundle = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+exports.claimFree = async (req, res) => {
+  try {
+    const { bundleId } = req.params;
+    const userId = req.mongoUser._id;
+
+    const bundle = await Bundle.findOne({ _id: bundleId, status: 'published' })
+      .populate('items', '_id price');
+    if (!bundle) return res.status(404).json({ error: 'Bundle not found' });
+    if (bundle.price !== 0) return res.status(400).json({ error: 'Bundle is not free' });
+
+    // Create a completed purchase for each item not already owned
+    const itemIds = bundle.items.map(i => i._id);
+
+    const existingPurchases = await Purchase.find({
+      user:    userId,
+      content: { $in: itemIds },
+      status:  'completed',
+    }).select('content');
+
+    const ownedIds = new Set(existingPurchases.map(p => p.content.toString()));
+    const toCreate = bundle.items.filter(i => !ownedIds.has(i._id.toString()));
+
+    const purchases = toCreate.length > 0
+      ? await Purchase.insertMany(
+          toCreate.map(i => ({
+            user:          userId,
+            content:       i._id,
+            amount:        0,
+            paymentMethod: 'free',
+            status:        'completed',
+          }))
+        )
+      : [];
+
+    res.status(toCreate.length > 0 ? 201 : 200).json({
+      message:   toCreate.length > 0 ? 'Bundle added to library' : 'Already in library',
+      purchases,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};

@@ -12,6 +12,7 @@ router.get('/:bundleId',  ctrl.getBundle);
 
 // User
 router.post('/:bundleId/purchase', authenticate, ctrl.purchaseBundle);
+router.post('/:bundleId/claim', authenticate, ctrl.claimFree);
 
 // Admin
 router.get('/admin/:bundleId',    authenticate, requireAdmin, ctrl.getBundleAdmin);
