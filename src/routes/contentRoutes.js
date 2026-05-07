@@ -84,6 +84,7 @@ router.put(
   contentController.updateContentDirect
 );
 
+router.post('/:contentId/claim', authenticate, contentController.claimFree);
 router.delete('/:contentId', authenticate, requireAdmin, contentController.deleteContent);
 router.get('/:contentId', contentController.getContent);
 

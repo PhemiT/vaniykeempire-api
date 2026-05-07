@@ -26,7 +26,7 @@ const purchaseSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['stripe', 'paystack', 'paypal'],   // ← stripe added
+    enum: ['stripe', 'paystack', 'paypal', 'free'],
   },
   status: {
     type: String,

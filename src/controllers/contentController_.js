@@ -573,3 +573,29 @@ exports.getContentAdmin = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+exports.claimFree = async (req, res) => {
+  try {
+    const { contentId } = req.params;
+    const userId = req.mongoUser._id;
+
+    const content = await Content.findOne({ _id: contentId, status: 'published' });
+    if (!content) return res.status(404).json({ error: 'Content not found' });
+    if (content.price !== 0) return res.status(400).json({ error: 'Content is not free' });
+
+    const existing = await Purchase.findOne({ user: userId, content: contentId, status: 'completed' });
+    if (existing) return res.json({ message: 'Already in library', purchase: existing });
+
+    const purchase = await Purchase.create({
+      user:          userId,
+      content:       contentId,
+      amount:        0,
+      paymentMethod: 'free',
+      status:        'completed',
+    });
+
+    res.status(201).json({ message: 'Added to library', purchase });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
