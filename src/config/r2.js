@@ -12,7 +12,6 @@ const r2Client = new S3Client({
 });
 
 // Generates a presigned PUT URL so the browser can upload directly to R2.
-// expiresIn is in seconds — 3600 = 1 hour.
 async function generatePresignedUploadUrl(key, contentType = 'video/mp4', expiresIn = 3600) {
   const command = new PutObjectCommand({
     Bucket:      process.env.R2_BUCKET_NAME,
@@ -30,7 +29,7 @@ async function deleteFromR2(key) {
   return r2Client.send(command);
 }
 
-// Generates a HMAC-signed Worker URL for the master playlist.
+// Generates a HMAC-signed Worker URL for the HLS master playlist.
 // The Worker validates this token before serving any R2 content.
 function generateSignedVideoUrl(contentId, expiresInMs = 4 * 60 * 60 * 1000) {
   const path      = `videos/${contentId}/hls/master.m3u8`;
@@ -39,9 +38,28 @@ function generateSignedVideoUrl(contentId, expiresInMs = 4 * 60 * 60 * 1000) {
     .createHmac('sha256', process.env.WORKER_SECRET)
     .update(`${path}:${expiresAt}`)
     .digest('hex');
-
   const workerUrl = process.env.CLOUDFLARE_WORKER_URL.replace(/\/$/, '');
   return `${workerUrl}/${path}?token=${token}&expires=${expiresAt}`;
 }
 
-module.exports = { r2Client, generatePresignedUploadUrl, deleteFromR2, generateSignedVideoUrl };
+// Generates a HMAC-signed Worker URL for the preview virtual playlist.
+// The Worker intercepts this path and builds a mini 2-segment playlist on the fly.
+// expiresInMs is short (30 min) since previews are unauthenticated.
+function generateSignedPreviewUrl(contentId, expiresInMs = 30 * 60 * 1000) {
+  const path      = `videos/${contentId}/preview/playlist.m3u8`;
+  const expiresAt = Date.now() + expiresInMs;
+  const token     = crypto
+    .createHmac('sha256', process.env.WORKER_SECRET)
+    .update(`${path}:${expiresAt}`)
+    .digest('hex');
+  const workerUrl = process.env.CLOUDFLARE_WORKER_URL.replace(/\/$/, '');
+  return `${workerUrl}/${path}?token=${token}&expires=${expiresAt}`;
+}
+
+module.exports = {
+  r2Client,
+  generatePresignedUploadUrl,
+  deleteFromR2,
+  generateSignedVideoUrl,
+  generateSignedPreviewUrl,
+};

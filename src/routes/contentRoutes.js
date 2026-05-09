@@ -6,6 +6,7 @@ const { uploadContent } = require('../config/cloudinary');
 
 // ─── Public routes ─────────────────────────────────────────────────────────
 router.get('/', contentController.listContent);
+router.get('/:contentId/preview', contentController.getPreview);
 
 // ─── Transcode webhook (no user auth — verified by webhook secret header) ──
 router.post('/transcode-complete', contentController.transcodeComplete);

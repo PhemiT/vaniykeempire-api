@@ -2,7 +2,7 @@ const Content  = require('../models/Content');
 const Purchase = require('../models/Purchase');
 const Category = require('../models/Category');
 const { cloudinary, uploadThumbnailFromDisk, generateUploadSignature } = require('../config/cloudinary');
-const { generatePresignedUploadUrl, deleteFromR2, generateSignedVideoUrl } = require('../config/r2');
+const { generatePresignedUploadUrl, deleteFromR2, generateSignedVideoUrl, generateSignedPreviewUrl } = require('../config/r2');
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -198,6 +198,12 @@ exports.createContent = async (req, res) => {
     });
 
     await content.populate('createdBy', 'name email');
+
+    if (content.type === 'audio' && content.fileUrl) {
+      content.previewUrl = content.fileUrl.replace('/upload/', '/upload/eo_20/');
+      await content.save();
+    }
+    
     res.status(201).json({ message: 'Content created successfully', content });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -288,6 +294,11 @@ exports.updateContent = async (req, res) => {
     content.updatedAt = new Date();
     await content.save();
     await content.populate('createdBy', 'name email');
+
+    if (content.type === 'audio' && content.fileUrl) {
+      content.previewUrl = content.fileUrl.replace('/upload/', '/upload/eo_20/');
+      await content.save();
+    }
 
     res.json({ message: 'Content updated successfully', content });
   } catch (error) {
@@ -595,6 +606,33 @@ exports.claimFree = async (req, res) => {
     });
 
     res.status(201).json({ message: 'Added to library', purchase });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ─── Public: Get signed preview URL (no purchase required) ────────────────
+// Returns a short-lived signed Worker URL that plays only the first 2
+// HLS segments (~12–15 s) without exposing the full content.
+exports.getPreview = async (req, res) => {
+  try {
+    const { contentId } = req.params;
+
+    const content = await Content.findOne({ _id: contentId, status: 'published' });
+    if (!content) return res.status(404).json({ error: 'Content not found' });
+
+    if (content.type !== 'video') {
+      return res.status(400).json({ error: 'Preview only available for video content' });
+    }
+
+    if (!content.hlsMasterUrl) {
+      return res.status(404).json({ error: 'Video is still processing' });
+    }
+
+    const { generateSignedPreviewUrl } = require('../config/r2');
+    const previewUrl = generateSignedPreviewUrl(contentId);
+
+    res.json({ previewUrl });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

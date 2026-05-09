@@ -42,6 +42,9 @@ const contentSchema = new mongoose.Schema({
   hlsMasterUrl: {
     type: String,
   },
+  previewUrl: {
+    type: String,
+  },
   duration: {
     // For video/audio — in seconds
     type: Number,
