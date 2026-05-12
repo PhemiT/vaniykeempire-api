@@ -200,7 +200,7 @@ exports.createContent = async (req, res) => {
     await content.populate('createdBy', 'name email');
 
     if (content.type === 'audio' && content.fileUrl) {
-      content.previewUrl = content.fileUrl.replace('/upload/', '/upload/eo_20/');
+      content.previewUrl = content.fileUrl.replace('/upload/', '/upload/eo_60/');
       await content.save();
     }
     
@@ -296,7 +296,7 @@ exports.updateContent = async (req, res) => {
     await content.populate('createdBy', 'name email');
 
     if (content.type === 'audio' && content.fileUrl) {
-      content.previewUrl = content.fileUrl.replace('/upload/', '/upload/eo_20/');
+      content.previewUrl = content.fileUrl.replace('/upload/', '/upload/eo_60/');
       await content.save();
     }
 

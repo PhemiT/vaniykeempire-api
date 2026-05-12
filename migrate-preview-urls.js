@@ -10,7 +10,7 @@ async function migrate() {
   console.log(`Found ${audios.length} audio documents`)
 
   for (const doc of audios) {
-    doc.previewUrl = doc.fileUrl.replace('/upload/', '/upload/eo_20/')
+    doc.previewUrl = doc.fileUrl.replace('/upload/', '/upload/eo_60/')
     await doc.save()
     console.log(`Updated: ${doc.title}`)
   }
