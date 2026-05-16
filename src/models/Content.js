@@ -1,5 +1,12 @@
 const mongoose = require('mongoose');
 
+const trackSchema = new mongoose.Schema({
+  title:        { type: String, required: true },
+  fileUrl:      { type: String, required: true },
+  filePublicId: { type: String, required: true },
+  order:        { type: Number, required: true },
+}, { _id: false });
+
 const contentSchema = new mongoose.Schema({
   title: {
     type: String,
@@ -11,7 +18,7 @@ const contentSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['pdf', 'video', 'audio'],
+    enum: ['pdf', 'video', 'audio', 'album'],
     required: true,
   },
   category: {
@@ -25,11 +32,10 @@ const contentSchema = new mongoose.Schema({
   },
   fileUrl: {
     type: String,
-    required: true,
+    // Not required at schema level — albums use tracks[] instead
   },
   filePublicId: {
     type: String,
-    required: true,
   },
   thumbnailUrl: {
     type: String,
@@ -37,8 +43,7 @@ const contentSchema = new mongoose.Schema({
   thumbnailPublicId: {
     type: String,
   },
-  // HLS master playlist R2 key (e.g. videos/{contentId}/hls/master.m3u8).
-  // Populated by the transcode-complete webhook once GitHub Actions finishes.
+  // HLS master playlist R2 key (videos only)
   hlsMasterUrl: {
     type: String,
   },
@@ -46,11 +51,9 @@ const contentSchema = new mongoose.Schema({
     type: String,
   },
   duration: {
-    // For video/audio — in seconds
     type: Number,
   },
   fileSize: {
-    // In bytes
     type: Number,
   },
   status: {
@@ -63,6 +66,11 @@ const contentSchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: 0,
+  },
+  // Album tracks — populated for type === 'album'
+  tracks: {
+    type: [trackSchema],
+    default: undefined,
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
@@ -80,5 +88,4 @@ const contentSchema = new mongoose.Schema({
 });
 
 contentSchema.index({ title: 'text', description: 'text', tags: 'text' });
-
 module.exports = mongoose.model('Content', contentSchema);

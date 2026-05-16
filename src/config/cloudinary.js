@@ -92,10 +92,25 @@ function generateUploadSignature(folder = 'content/videos') {
   };
 }
 
+function generateAudioUploadSignature(folder = 'content/audio') {
+  const timestamp = Math.round(Date.now() / 1000);
+  const params    = { folder, timestamp };
+  const signature = cloudinary.utils.api_sign_request(params, process.env.CLOUDINARY_API_SECRET);
+  return {
+    signature,
+    timestamp,
+    folder,
+    resourceType: 'video',
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+    apiKey:    process.env.CLOUDINARY_API_KEY,
+  };
+}
+
 module.exports = {
   cloudinary,
   uploadContent,
   uploadVideo,
   uploadThumbnailFromDisk,
   generateUploadSignature,
+  generateAudioUploadSignature
 };

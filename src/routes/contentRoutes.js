@@ -15,14 +15,27 @@ router.post('/transcode-complete', contentController.transcodeComplete);
 router.get('/user/purchases', authenticate, contentController.getUserPurchases);
 router.get('/:contentId/access', authenticate, contentController.accessContent);
 
-// ─── Admin routes ──────────────────────────────────────────────────────────
+// ─── Admin: static-segment routes MUST come before /:contentId wildcard ────
+router.get('/audio-upload-signature', authenticate, requireAdmin, contentController.getAudioUploadSignature);
 router.get('/admin/all', authenticate, requireAdmin, contentController.getAllContent);
 router.get('/admin/:contentId', authenticate, requireAdmin, contentController.getContentAdmin);
 router.get('/upload-signature', authenticate, requireAdmin, contentController.getUploadSignature);
-
-// Presigned R2 upload URL — browser calls this to get a direct-upload URL
-// Query params: contentId, contentType (e.g. video/mp4)
 router.get('/video-upload-url', authenticate, requireAdmin, contentController.getVideoUploadUrl);
+
+// Admin views — patch/delete must be above the /:contentId wildcard group
+router.patch('/admin/:contentId/views', authenticate, requireAdmin, contentController.setViews);
+router.delete('/admin/:contentId/views', authenticate, requireAdmin, contentController.resetViews);
+
+// ─── Create routes ─────────────────────────────────────────────────────────
+
+// Album create — only thumbnail via multer now; tracks uploaded directly from browser
+router.post(
+  '/album',
+  authenticate,
+  requireAdmin,
+  uploadContent.fields([{ name: 'thumbnail', maxCount: 1 }]),
+  contentController.createAlbum
+);
 
 // Non-video content (PDFs, audio) — streamed directly to Cloudinary
 router.post(
@@ -36,8 +49,7 @@ router.post(
   contentController.createContent
 );
 
-// Video content — no file multer needed; browser uploaded directly to R2.
-// Only thumbnail may be included (still goes through Cloudinary).
+// Video content — browser uploaded directly to R2; only thumbnail via multer
 router.post(
   '/video',
   authenticate,
@@ -46,13 +58,24 @@ router.post(
   contentController.createContent
 );
 
-// Direct upload (browser -> Cloudinary, then POST metadata)
+// Direct upload (browser → Cloudinary, then POST metadata)
 router.post(
   '/direct',
   authenticate,
   requireAdmin,
   uploadContent.fields([{ name: 'thumbnail', maxCount: 1 }]),
   contentController.createContentDirect
+);
+
+// ─── Update routes ─────────────────────────────────────────────────────────
+
+// Album update
+router.put(
+  '/album/:contentId',
+  authenticate,
+  requireAdmin,
+  uploadContent.fields([{ name: 'thumbnail', maxCount: 1 }]),
+  contentController.updateAlbum
 );
 
 // Update non-video content
@@ -67,7 +90,7 @@ router.put(
   contentController.updateContent
 );
 
-// Update video content — only thumbnail via multer; r2Key comes in the body
+// Update video content — only thumbnail via multer; r2Key comes in body
 router.put(
   '/video/:contentId',
   authenticate,
@@ -85,13 +108,10 @@ router.put(
   contentController.updateContentDirect
 );
 
+// ─── Per-item routes (wildcard last) ───────────────────────────────────────
 router.post('/:contentId/claim', authenticate, contentController.claimFree);
+router.post('/:contentId/view', contentController.incrementView);
 router.delete('/:contentId', authenticate, requireAdmin, contentController.deleteContent);
 router.get('/:contentId', contentController.getContent);
-
-// Views 
-router.post('/:contentId/view', contentController.incrementView);
-router.patch('/admin/:contentId/views', authenticate, requireAdmin, contentController.setViews);
-router.delete('/admin/:contentId/views', authenticate, requireAdmin, contentController.resetViews);
 
 module.exports = router;

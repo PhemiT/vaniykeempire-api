@@ -637,3 +637,116 @@ exports.getPreview = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+// ─── Admin: Create album ───────────────────────────────────────────────────
+// Tracks are uploaded directly from the browser to Cloudinary.
+// This endpoint receives only JSON metadata for each track + optional thumbnail file.
+//
+// Body:
+//   title, description, category, price, status, tags (all strings)
+//   tracks: JSON array of { title, fileUrl, filePublicId, order }
+// Files:
+//   thumbnail (optional, still goes through multer/Cloudinary)
+exports.createAlbum = async (req, res) => {
+  try {
+    const { title, description, category, price, status, tags, tracks } = req.body;
+
+    let parsedTracks = [];
+    try {
+      parsedTracks = tracks ? JSON.parse(tracks) : [];
+    } catch {
+      return res.status(400).json({ error: 'Invalid tracks JSON' });
+    }
+
+    if (!parsedTracks.length) {
+      return res.status(400).json({ error: 'At least one track is required' });
+    }
+
+    const { thumbnailUrl, thumbnailPublicId } = await resolveThumbnail(req.files, false);
+
+    const content = await Content.create({
+      title,
+      description,
+      type:         'album',
+      category,
+      price,
+      fileUrl:      parsedTracks[0].fileUrl,
+      filePublicId: parsedTracks[0].filePublicId,
+      tracks:       parsedTracks,
+      thumbnailUrl,
+      thumbnailPublicId,
+      status:    status || 'draft',
+      tags:      tags ? JSON.parse(tags) : [],
+      createdBy: req.mongoUser._id,
+    });
+
+    await content.populate('createdBy', 'name email');
+    res.status(201).json({ message: 'Album created successfully', content });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.updateAlbum = async (req, res) => {
+  try {
+    const { contentId } = req.params;
+    const { title, description, category, price, status, tags, tracks, removedTrackIds } = req.body;
+
+    const content = await Content.findById(contentId);
+    if (!content) return res.status(404).json({ error: 'Content not found' });
+    if (content.type !== 'album') return res.status(400).json({ error: 'Content is not an album' });
+
+    let removed = [];
+    try { removed = removedTrackIds ? JSON.parse(removedTrackIds) : []; } catch { removed = []; }
+
+    for (const publicId of removed) {
+      await cloudinary.uploader.destroy(publicId, { resource_type: 'video' }).catch(e =>
+        console.warn('Cloudinary track delete failed:', e.message)
+      );
+    }
+
+    if (tracks) {
+      let parsedTracks = [];
+      try { parsedTracks = JSON.parse(tracks); } catch { return res.status(400).json({ error: 'Invalid tracks JSON' }); }
+      content.tracks = parsedTracks;
+      if (parsedTracks.length > 0) {
+        content.fileUrl      = parsedTracks[0].fileUrl;
+        content.filePublicId = parsedTracks[0].filePublicId;
+      }
+    }
+
+    if (req.files?.thumbnail) {
+      if (content.thumbnailPublicId) {
+        await cloudinary.uploader.destroy(content.thumbnailPublicId, { resource_type: 'image' });
+      }
+      const { thumbnailUrl, thumbnailPublicId } = await resolveThumbnail(req.files, false);
+      content.thumbnailUrl      = thumbnailUrl;
+      content.thumbnailPublicId = thumbnailPublicId;
+    }
+
+    if (title       !== undefined) content.title       = title;
+    if (description !== undefined) content.description = description;
+    if (category    !== undefined) content.category    = category;
+    if (price       !== undefined) content.price       = price;
+    if (status      !== undefined) content.status      = status;
+    if (tags        !== undefined) content.tags        = JSON.parse(tags);
+
+    content.updatedAt = new Date();
+    await content.save();
+    await content.populate('createdBy', 'name email');
+
+    res.json({ message: 'Album updated successfully', content });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.getAudioUploadSignature = (req, res) => {
+  try {
+    const { generateAudioUploadSignature } = require('../config/cloudinary');
+    const sig = generateAudioUploadSignature();
+    res.json(sig);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
