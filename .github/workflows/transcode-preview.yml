@@ -1,0 +1,69 @@
+name: Transcode Preview Video
+
+on:
+  workflow_dispatch:
+    inputs:
+      contentId:
+        description: MongoDB content document ID
+        required: true
+        type: string
+      r2Key:
+        description: R2 key of the raw preview (e.g. videos/{contentId}/preview-raw/original.mp4)
+        required: true
+        type: string
+
+jobs:
+  transcode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Install ffmpeg
+        run: sudo apt-get install -y ffmpeg
+
+      - name: Configure AWS CLI for R2
+        run: |
+          aws configure set aws_access_key_id     ${{ secrets.R2_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          aws configure set default.region        auto
+
+      - name: Download raw preview from R2
+        run: |
+          aws s3 cp \
+            s3://${{ secrets.R2_BUCKET_NAME }}/${{ inputs.r2Key }} \
+            ./preview_original.mp4 \
+            --endpoint-url https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+
+      - name: Transcode to single-rendition HLS (720p)
+        run: |
+          mkdir -p preview-hls
+          ffmpeg -i preview_original.mp4 \
+            -vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2" \
+            -c:v libx264 -b:v 2800k -maxrate 3000k -bufsize 6000k \
+            -c:a aac -b:a 128k \
+            -hls_time 6 -hls_playlist_type vod \
+            -hls_segment_filename preview-hls/seg%03d.ts \
+            preview-hls/playlist.m3u8
+
+      - name: Upload preview HLS to R2
+        run: |
+          aws s3 cp preview-hls/ \
+            s3://${{ secrets.R2_BUCKET_NAME }}/videos/${{ inputs.contentId }}/preview-hls/ \
+            --recursive \
+            --endpoint-url https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+
+      - name: Delete raw preview from R2
+        run: |
+          aws s3 rm \
+            s3://${{ secrets.R2_BUCKET_NAME }}/${{ inputs.r2Key }} \
+            --endpoint-url https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+
+      - name: Notify backend
+        run: |
+          curl -f -X POST ${{ secrets.BACKEND_WEBHOOK_URL }}/api/admin/content/preview-transcode-complete \
+            -H "Content-Type: application/json" \
+            -H "x-webhook-secret: ${{ secrets.BACKEND_WEBHOOK_SECRET }}" \
+            -d '{
+              "contentId": "${{ inputs.contentId }}",
+              "previewHlsKey": "videos/${{ inputs.contentId }}/preview-hls/playlist.m3u8"
+            }'

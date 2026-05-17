@@ -8,8 +8,9 @@ const { uploadContent } = require('../config/cloudinary');
 router.get('/', contentController.listContent);
 router.get('/:contentId/preview', contentController.getPreview);
 
-// ─── Transcode webhook (no user auth — verified by webhook secret header) ──
+// ─── Transcode webhooks (no user auth — verified by webhook secret header) ──
 router.post('/transcode-complete', contentController.transcodeComplete);
+router.post('/preview-transcode-complete', contentController.previewTranscodeComplete);
 
 // ─── User routes (authenticated) ───────────────────────────────────────────
 router.get('/user/purchases', authenticate, contentController.getUserPurchases);
@@ -21,6 +22,7 @@ router.get('/admin/all', authenticate, requireAdmin, contentController.getAllCon
 router.get('/admin/:contentId', authenticate, requireAdmin, contentController.getContentAdmin);
 router.get('/upload-signature', authenticate, requireAdmin, contentController.getUploadSignature);
 router.get('/video-upload-url', authenticate, requireAdmin, contentController.getVideoUploadUrl);
+router.get('/:contentId/preview-upload-url', authenticate, requireAdmin, contentController.getPreviewUploadUrl);
 
 // Admin views — patch/delete must be above the /:contentId wildcard group
 router.patch('/admin/:contentId/views', authenticate, requireAdmin, contentController.setViews);
@@ -111,6 +113,7 @@ router.put(
 // ─── Per-item routes (wildcard last) ───────────────────────────────────────
 router.post('/:contentId/claim', authenticate, contentController.claimFree);
 router.post('/:contentId/view', contentController.incrementView);
+router.post('/:contentId/queue-preview-transcode', authenticate, requireAdmin, contentController.queuePreviewTranscode);
 router.delete('/:contentId', authenticate, requireAdmin, contentController.deleteContent);
 router.get('/:contentId', contentController.getContent);
 

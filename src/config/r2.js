@@ -56,10 +56,26 @@ function generateSignedPreviewUrl(contentId, expiresInMs = 30 * 60 * 1000) {
   return `${workerUrl}/${path}?token=${token}&expires=${expiresAt}`;
 }
 
+// Generates a signed Worker URL for the admin-uploaded preview HLS.
+// Uses a distinct path (preview-hls) to avoid collision with the
+// virtual dynamic-preview route (preview/playlist.m3u8).
+function generateSignedPreviewVideoUrl(contentId, expiresInMs = 4 * 60 * 60 * 1000) {
+  const path      = `videos/${contentId}/preview-hls/playlist.m3u8`;
+  const expiresAt = Date.now() + expiresInMs;
+  const token     = crypto
+    .createHmac('sha256', process.env.WORKER_SECRET)
+    .update(`${path}:${expiresAt}`)
+    .digest('hex');
+  const workerUrl = process.env.CLOUDFLARE_WORKER_URL.replace(/\/$/, '');
+  return `${workerUrl}/${path}?token=${token}&expires=${expiresAt}`;
+}
+
 module.exports = {
   r2Client,
   generatePresignedUploadUrl,
   deleteFromR2,
   generateSignedVideoUrl,
-  generateSignedPreviewUrl,
+  generateSignedPreviewUrl,         
+  generateSignedPreviewVideoUrl,   
 };
+

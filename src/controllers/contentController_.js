@@ -47,6 +47,28 @@ async function triggerTranscode(contentId, r2Key) {
   }
 }
 
+async function triggerPreviewTranscode(contentId, r2Key) {
+  const url = `https://api.github.com/repos/${process.env.GITHUB_REPO_OWNER}/${process.env.GITHUB_REPO_NAME}/actions/workflows/transcode-preview.yml/dispatches`;
+
+  const resp = await fetch(url, {
+    method:  'POST',
+    headers: {
+      Authorization:  `Bearer ${process.env.GITHUB_TOKEN}`,
+      Accept:         'application/vnd.github+json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      ref:    'main',
+      inputs: { contentId, r2Key },
+    }),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`GitHub Actions dispatch failed (preview): ${resp.status} ${text}`);
+  }
+}
+
 // ─── Admin: Get presigned R2 upload URL (browser uploads directly to R2) ──
 // Returns a presigned PUT URL and the R2 key the browser should use.
 // The key is deterministic so the controller can reference it after upload.
@@ -388,7 +410,7 @@ exports.listContent = async (req, res) => {
 
     const query = { status: 'published' };
     if (category) query.category = category;
-    if (type)     query.type     = type;
+    if (type) query.type = Array.isArray(type) ? { $in: type } : type;
     if (minPrice || maxPrice) {
       query.price = {};
       if (minPrice) query.price.$gte = Number(minPrice);
@@ -611,9 +633,6 @@ exports.claimFree = async (req, res) => {
   }
 };
 
-// ─── Public: Get signed preview URL (no purchase required) ────────────────
-// Returns a short-lived signed Worker URL that plays only the first 2
-// HLS segments (~12–15 s) without exposing the full content.
 exports.getPreview = async (req, res) => {
   try {
     const { contentId } = req.params;
@@ -625,14 +644,19 @@ exports.getPreview = async (req, res) => {
       return res.status(400).json({ error: 'Preview only available for video content' });
     }
 
+    // Prefer admin-uploaded preview HLS over dynamic virtual preview
+    if (content.previewHlsKey) {
+      const { generateSignedPreviewVideoUrl } = require('../config/r2');
+      return res.json({ previewUrl: generateSignedPreviewVideoUrl(contentId) });
+    }
+
     if (!content.hlsMasterUrl) {
       return res.status(404).json({ error: 'Video is still processing' });
     }
 
+    // Fall back to virtual dynamic preview (first ~24s of main content)
     const { generateSignedPreviewUrl } = require('../config/r2');
-    const previewUrl = generateSignedPreviewUrl(contentId);
-
-    res.json({ previewUrl });
+    res.json({ previewUrl: generateSignedPreviewUrl(contentId) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -746,6 +770,78 @@ exports.getAudioUploadSignature = (req, res) => {
     const { generateAudioUploadSignature } = require('../config/cloudinary');
     const sig = generateAudioUploadSignature();
     res.json(sig);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ─── Admin: Get presigned R2 URL for preview video upload ─────────────────
+exports.getPreviewUploadUrl = async (req, res) => {
+  try {
+    const { contentId }              = req.params;
+    const { contentType = 'video/mp4' } = req.query;
+
+    const content = await Content.findById(contentId);
+    if (!content) return res.status(404).json({ error: 'Content not found' });
+    if (content.type !== 'video')
+      return res.status(400).json({ error: 'Preview upload only valid for video content' });
+
+    const ext = contentType === 'video/quicktime' ? '.mov'
+              : contentType === 'video/webm'       ? '.webm'
+              : '.mp4';
+    const key = `videos/${contentId}/preview-raw/original${ext}`;
+    const url = await generatePresignedUploadUrl(key, contentType);
+
+    res.json({ uploadUrl: url, r2Key: key });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ─── Admin: Queue preview transcode after browser finishes R2 upload ───────
+exports.queuePreviewTranscode = async (req, res) => {
+  try {
+    const { contentId } = req.params;
+    const { r2Key }     = req.body;
+
+    if (!r2Key) return res.status(400).json({ error: 'r2Key is required' });
+
+    const content = await Content.findById(contentId);
+    if (!content) return res.status(404).json({ error: 'Content not found' });
+
+    await triggerPreviewTranscode(contentId, r2Key);
+
+    content.previewProcessing = true;
+    content.updatedAt         = new Date();
+    await content.save();
+
+    res.json({ message: 'Preview transcode queued' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ─── Webhook: GitHub Actions preview transcode complete ────────────────────
+exports.previewTranscodeComplete = async (req, res) => {
+  try {
+    const secret = req.headers['x-webhook-secret'];
+    if (!secret || secret !== process.env.TRANSCODE_WEBHOOK_SECRET) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { contentId, previewHlsKey } = req.body;
+    if (!contentId || !previewHlsKey)
+      return res.status(400).json({ error: 'contentId and previewHlsKey are required' });
+
+    const content = await Content.findById(contentId);
+    if (!content) return res.status(404).json({ error: 'Content not found' });
+
+    content.previewHlsKey    = previewHlsKey;
+    content.previewProcessing = false;
+    content.updatedAt         = new Date();
+    await content.save();
+
+    res.json({ message: 'Preview transcode complete', contentId });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

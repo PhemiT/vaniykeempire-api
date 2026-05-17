@@ -50,6 +50,14 @@ const contentSchema = new mongoose.Schema({
   previewUrl: {
     type: String,
   },
+  previewHlsKey: {
+    type: String,
+    default: null,
+  },
+  previewProcessing: {
+    type: Boolean,
+    default: false,
+  },
   duration: {
     type: Number,
   },
