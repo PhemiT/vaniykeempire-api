@@ -14,8 +14,8 @@ const aboutPageSchema = new mongoose.Schema({
   pillars: [
     {
       number: { type: String, required: true },
-      label:  { type: String, required: true },
-      body:   { type: String, required: true },
+      label: { type: String, required: true },
+      body: { type: String, required: true },
     },
   ],
   closingQuote: { type: String, required: true },

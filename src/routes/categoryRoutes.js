@@ -9,7 +9,17 @@ router.get('/:slug', categoryController.getCategoryBySlug);
 
 // Admin routes
 router.post('/', authenticate, requireAdmin, categoryController.createCategory);
-router.put('/:categoryId', authenticate, requireAdmin, categoryController.updateCategory);
-router.delete('/:categoryId', authenticate, requireAdmin, categoryController.deleteCategory);
+router.put(
+  '/:categoryId',
+  authenticate,
+  requireAdmin,
+  categoryController.updateCategory
+);
+router.delete(
+  '/:categoryId',
+  authenticate,
+  requireAdmin,
+  categoryController.deleteCategory
+);
 
 module.exports = router;

@@ -6,135 +6,163 @@ const Purchase = require('../models/Purchase');
 const Bundle = require('../models/Bundle');
 
 const prepareBundleCheckout = async (bundleId, userId) => {
-  const Bundle  = require('../models/Bundle');
- 
-  const bundle = await Bundle.findOne({ _id: bundleId, status: 'published' })
-    .populate('items', 'price title type');
+  const Bundle = require('../models/Bundle');
+
+  const bundle = await Bundle.findOne({
+    _id: bundleId,
+    status: 'published',
+  }).populate('items', 'price title type');
   if (!bundle) throw { status: 404, message: 'Bundle not found' };
- 
+
   // Find which items the user already owns
   const existingPurchases = await Purchase.find({
-    user:    userId,
-    content: { $in: bundle.items.map(i => i._id) },
-    status:  'completed',
+    user: userId,
+    content: { $in: bundle.items.map((i) => i._id) },
+    status: 'completed',
   }).select('content');
- 
-  const ownedIds   = new Set(existingPurchases.map(p => p.content.toString()));
-  const itemsToBuy = bundle.items.filter(i => !ownedIds.has(i._id.toString()));
- 
+
+  const ownedIds = new Set(existingPurchases.map((p) => p.content.toString()));
+  const itemsToBuy = bundle.items.filter(
+    (i) => !ownedIds.has(i._id.toString())
+  );
+
   if (itemsToBuy.length === 0) {
     throw { status: 400, message: 'You already own all items in this bundle' };
   }
- 
+
   // Pro-rated amount — same logic as bundleController.purchaseBundle
-  const totalOriginal  = bundle.originalPrice ||
-    bundle.items.reduce((s, i) => s + i.price, 0);
-  const ownedOriginal  = bundle.items
-    .filter(i => ownedIds.has(i._id.toString()))
+  const totalOriginal =
+    bundle.originalPrice || bundle.items.reduce((s, i) => s + i.price, 0);
+  const ownedOriginal = bundle.items
+    .filter((i) => ownedIds.has(i._id.toString()))
     .reduce((sum, i) => sum + i.price, 0);
-  const discountRatio  = totalOriginal > 0 ? bundle.price / totalOriginal : 1;
-  const chargeAmount   = Math.max(0, (totalOriginal - ownedOriginal) * discountRatio);
- 
+  const discountRatio = totalOriginal > 0 ? bundle.price / totalOriginal : 1;
+  const chargeAmount = Math.max(
+    0,
+    (totalOriginal - ownedOriginal) * discountRatio
+  );
+
   // Round to 2 dp to avoid floating-point drift
   const chargeRounded = Math.round(chargeAmount * 100) / 100;
- 
+
   if (chargeRounded === 0) {
-    throw { status: 400, message: 'Nothing to charge — you already own all items in this bundle' };
+    throw {
+      status: 400,
+      message: 'Nothing to charge — you already own all items in this bundle',
+    };
   }
- 
+
   return { bundle, itemsToBuy, chargeAmount: chargeRounded };
 };
- 
+
 // ─── Paystack: bundle checkout ────────────────────────────────────────────────
 exports.createBundlePaymentIntent = async (req, res) => {
   try {
     const { bundleId } = req.body;
-    const userId    = req.mongoUser._id;
+    const userId = req.mongoUser._id;
     const userEmail = req.mongoUser.email;
- 
-    const { bundle, itemsToBuy, chargeAmount } = await prepareBundleCheckout(bundleId, userId);
- 
+
+    const { bundle, itemsToBuy, chargeAmount } = await prepareBundleCheckout(
+      bundleId,
+      userId
+    );
+
     const amountKobo = Math.round(chargeAmount * 100);
-    const reference  = `ps_bundle_${userId}_${bundleId}_${Date.now()}`;
- 
+    const reference = `ps_bundle_${userId}_${bundleId}_${Date.now()}`;
+
     const paystackRes = await paystack.initializeTransaction({
-      email:    userEmail,
-      amount:   amountKobo,
+      email: userEmail,
+      amount: amountKobo,
       currency: 'NGN',
       reference,
       metadata: {
-        bundleId:  bundle._id.toString(),
-        userId:    userId.toString(),
-        cartType:  'bundle',
-        contentIds: itemsToBuy.map(i => i._id.toString()).join(','),
-        title:     bundle.title,
+        bundleId: bundle._id.toString(),
+        userId: userId.toString(),
+        cartType: 'bundle',
+        contentIds: itemsToBuy.map((i) => i._id.toString()).join(','),
+        title: bundle.title,
       },
       callback_url: `${process.env.FRONTEND_URL}/payment-complete?ref=${reference}`,
     });
- 
+
     // Create one pending Purchase per item being bought
-    const purchaseRecords = itemsToBuy.map(item => ({
-      user:               userId,
-      content:            item._id,
-      amount:             Math.round((chargeAmount / itemsToBuy.length) * 100) / 100,
-      paystackReference:  reference,
-      paymentMethod:      'paystack',
-      status:             'pending',
+    const purchaseRecords = itemsToBuy.map((item) => ({
+      user: userId,
+      content: item._id,
+      amount: Math.round((chargeAmount / itemsToBuy.length) * 100) / 100,
+      paystackReference: reference,
+      paymentMethod: 'paystack',
+      status: 'pending',
     }));
     await Purchase.insertMany(purchaseRecords);
- 
+
     res.json({
       authorizationUrl: paystackRes.data.authorization_url,
       reference,
-      amount:    chargeAmount,
+      amount: chargeAmount,
       itemCount: itemsToBuy.length,
-      items:     itemsToBuy.map(i => ({ _id: i._id, title: i.title, price: i.price, type: i.type })),
+      items: itemsToBuy.map((i) => ({
+        _id: i._id,
+        title: i.title,
+        price: i.price,
+        type: i.type,
+      })),
     });
   } catch (error) {
     const status = error.status && error.status !== 401 ? error.status : 500;
     res.status(status).json({ error: error.message });
   }
 };
- 
+
 // ─── PayPal: bundle checkout ──────────────────────────────────────────────────
 exports.createBundlePaypalOrder = async (req, res) => {
   try {
     const { bundleId } = req.body;
     const userId = req.mongoUser._id;
- 
-    const { bundle, itemsToBuy, chargeAmount } = await prepareBundleCheckout(bundleId, userId);
- 
+
+    const { bundle, itemsToBuy, chargeAmount } = await prepareBundleCheckout(
+      bundleId,
+      userId
+    );
+
     const order = await paypalRequest('POST', '/v2/checkout/orders', {
       intent: 'CAPTURE',
-      purchase_units: [{
-        amount: { currency_code: 'USD', value: chargeAmount.toFixed(2) },
-        description: bundle.title,
-        payee: { email_address: process.env.PAYPAL_RECEIVER_EMAIL },
-      }],
+      purchase_units: [
+        {
+          amount: { currency_code: 'USD', value: chargeAmount.toFixed(2) },
+          description: bundle.title,
+          payee: { email_address: process.env.PAYPAL_RECEIVER_EMAIL },
+        },
+      ],
       application_context: {
         return_url: `${process.env.FRONTEND_URL}/payment-complete?provider=paypal`,
         cancel_url: `${process.env.FRONTEND_URL}/payment-cancelled`,
         user_action: 'PAY_NOW',
       },
     });
- 
-    const purchaseRecords = itemsToBuy.map(item => ({
-      user:          userId,
-      content:       item._id,
-      amount:        Math.round((chargeAmount / itemsToBuy.length) * 100) / 100,
+
+    const purchaseRecords = itemsToBuy.map((item) => ({
+      user: userId,
+      content: item._id,
+      amount: Math.round((chargeAmount / itemsToBuy.length) * 100) / 100,
       paypalOrderId: order.id,
       paymentMethod: 'paypal',
-      status:        'pending',
+      status: 'pending',
     }));
     await Purchase.insertMany(purchaseRecords);
- 
-    const approvalUrl = order.links.find(l => l.rel === 'approve')?.href;
+
+    const approvalUrl = order.links.find((l) => l.rel === 'approve')?.href;
     res.json({
       approvalUrl,
-      orderId:   order.id,
-      amount:    chargeAmount,
+      orderId: order.id,
+      amount: chargeAmount,
       itemCount: itemsToBuy.length,
-      items:     itemsToBuy.map(i => ({ _id: i._id, title: i.title, price: i.price, type: i.type })),
+      items: itemsToBuy.map((i) => ({
+        _id: i._id,
+        title: i.title,
+        price: i.price,
+        type: i.type,
+      })),
     });
   } catch (error) {
     const status = error.status && error.status !== 401 ? error.status : 500;
@@ -147,7 +175,10 @@ exports.createBundleStripePaymentIntent = async (req, res) => {
     const { bundleId } = req.body;
     const userId = req.mongoUser._id;
 
-    const { bundle, itemsToBuy, chargeAmount } = await prepareBundleCheckout(bundleId, userId);
+    const { bundle, itemsToBuy, chargeAmount } = await prepareBundleCheckout(
+      bundleId,
+      userId
+    );
 
     const amountCents = Math.round(chargeAmount * 100);
     if (amountCents === 0) {
@@ -155,32 +186,37 @@ exports.createBundleStripePaymentIntent = async (req, res) => {
     }
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount:   amountCents,
+      amount: amountCents,
       currency: 'usd',
       metadata: {
-        bundleId:   bundle._id.toString(),
-        userId:     userId.toString(),
-        cartType:   'bundle',
-        contentIds: itemsToBuy.map(i => i._id.toString()).join(','),
-        title:      bundle.title,
+        bundleId: bundle._id.toString(),
+        userId: userId.toString(),
+        cartType: 'bundle',
+        contentIds: itemsToBuy.map((i) => i._id.toString()).join(','),
+        title: bundle.title,
       },
     });
 
-    const purchaseRecords = itemsToBuy.map(item => ({
-      user:                  userId,
-      content:               item._id,
-      amount:                Math.round((chargeAmount / itemsToBuy.length) * 100) / 100,
+    const purchaseRecords = itemsToBuy.map((item) => ({
+      user: userId,
+      content: item._id,
+      amount: Math.round((chargeAmount / itemsToBuy.length) * 100) / 100,
       stripePaymentIntentId: paymentIntent.id,
-      paymentMethod:         'stripe',
-      status:                'pending',
+      paymentMethod: 'stripe',
+      status: 'pending',
     }));
     await Purchase.insertMany(purchaseRecords);
 
     res.json({
       clientSecret: paymentIntent.client_secret,
-      amount:       chargeAmount,
-      itemCount:    itemsToBuy.length,
-      items:        itemsToBuy.map(i => ({ _id: i._id, title: i.title, price: i.price, type: i.type })),
+      amount: chargeAmount,
+      itemCount: itemsToBuy.length,
+      items: itemsToBuy.map((i) => ({
+        _id: i._id,
+        title: i.title,
+        price: i.price,
+        type: i.type,
+      })),
     });
   } catch (error) {
     const status = error.status && error.status !== 401 ? error.status : 500;
@@ -225,7 +261,10 @@ const validateItems = async (contentIds, userId) => {
   });
 
   if (contents.length !== contentIds.length) {
-    throw { status: 404, message: 'One or more content items not found or not published' };
+    throw {
+      status: 404,
+      message: 'One or more content items not found or not published',
+    };
   }
 
   const alreadyPurchased = await Purchase.find({
@@ -235,11 +274,14 @@ const validateItems = async (contentIds, userId) => {
   });
 
   if (alreadyPurchased.length > 0) {
-    const titles = alreadyPurchased.map(p => {
-      const c = contents.find(c => c._id.toString() === p.content.toString());
+    const titles = alreadyPurchased.map((p) => {
+      const c = contents.find((c) => c._id.toString() === p.content.toString());
       return c?.title ?? p.content;
     });
-    throw { status: 400, message: `You have already purchased: ${titles.join(', ')}` };
+    throw {
+      status: 400,
+      message: `You have already purchased: ${titles.join(', ')}`,
+    };
   }
 
   return contents;
@@ -255,7 +297,10 @@ exports.createStripePaymentIntent = async (req, res) => {
     const { contentId } = req.body;
     const userId = req.mongoUser._id;
 
-    const content = await Content.findOne({ _id: contentId, status: 'published' });
+    const content = await Content.findOne({
+      _id: contentId,
+      status: 'published',
+    });
     if (!content) return res.status(404).json({ error: 'Content not found' });
 
     const existingPurchase = await Purchase.findOne({
@@ -264,7 +309,9 @@ exports.createStripePaymentIntent = async (req, res) => {
       status: 'completed',
     });
     if (existingPurchase) {
-      return res.status(400).json({ error: 'You have already purchased this content' });
+      return res
+        .status(400)
+        .json({ error: 'You have already purchased this content' });
     }
 
     const paymentIntent = await stripe.paymentIntents.create({
@@ -273,22 +320,25 @@ exports.createStripePaymentIntent = async (req, res) => {
       // payment_method_types omitted so Stripe automatically enables
       // card, Apple Pay, and Google Pay based on the customer's device
       metadata: {
-        contentId:    content._id.toString(),
-        userId:       userId.toString(),
+        contentId: content._id.toString(),
+        userId: userId.toString(),
         contentTitle: content.title,
       },
     });
 
     await Purchase.create({
-      user:                  userId,
-      content:               contentId,
-      amount:                content.price,
+      user: userId,
+      content: contentId,
+      amount: content.price,
       stripePaymentIntentId: paymentIntent.id,
-      paymentMethod:         'stripe',
-      status:                'pending',
+      paymentMethod: 'stripe',
+      status: 'pending',
     });
 
-    res.json({ clientSecret: paymentIntent.client_secret, amount: content.price });
+    res.json({
+      clientSecret: paymentIntent.client_secret,
+      amount: content.price,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -301,45 +351,57 @@ exports.createStripeCartPaymentIntent = async (req, res) => {
     const userId = req.mongoUser._id;
 
     if (!Array.isArray(contentIds) || contentIds.length === 0) {
-      return res.status(400).json({ error: 'contentIds must be a non-empty array' });
+      return res
+        .status(400)
+        .json({ error: 'contentIds must be a non-empty array' });
     }
 
     const contents = await validateItems(contentIds, userId);
 
     const totalAmount = contents.reduce((sum, c) => sum + c.price, 0);
-    const totalCents  = Math.round(totalAmount * 100);
+    const totalCents = Math.round(totalAmount * 100);
 
     if (totalCents === 0) {
-      return res.status(400).json({ error: 'Cannot create a payment for $0 total' });
+      return res
+        .status(400)
+        .json({ error: 'Cannot create a payment for $0 total' });
     }
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount:   totalCents,
+      amount: totalCents,
       currency: 'usd',
       metadata: {
-        userId:     userId.toString(),
+        userId: userId.toString(),
         contentIds: contentIds.join(','),
-        itemCount:  String(contents.length),
-        titles:     contents.map(c => c.title).join(' | ').slice(0, 499),
+        itemCount: String(contents.length),
+        titles: contents
+          .map((c) => c.title)
+          .join(' | ')
+          .slice(0, 499),
       },
     });
 
-    const purchaseRecords = contents.map(c => ({
-      user:                  userId,
-      content:               c._id,
-      amount:                c.price,
+    const purchaseRecords = contents.map((c) => ({
+      user: userId,
+      content: c._id,
+      amount: c.price,
       stripePaymentIntentId: paymentIntent.id,
-      paymentMethod:         'stripe',
-      status:                'pending',
+      paymentMethod: 'stripe',
+      status: 'pending',
     }));
 
     await Purchase.insertMany(purchaseRecords);
 
     res.json({
       clientSecret: paymentIntent.client_secret,
-      amount:       totalAmount,
-      itemCount:    contents.length,
-      items: contents.map(c => ({ _id: c._id, title: c.title, price: c.price, type: c.type })),
+      amount: totalAmount,
+      itemCount: contents.length,
+      items: contents.map((c) => ({
+        _id: c._id,
+        title: c.title,
+        price: c.price,
+        type: c.type,
+      })),
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -352,7 +414,11 @@ exports.handleStripeWebhook = async (req, res) => {
   let event;
 
   try {
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
   } catch (err) {
     console.error('Stripe webhook signature failed:', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
@@ -404,12 +470,21 @@ exports.createPaymentIntent = async (req, res) => {
     const userId = req.mongoUser._id;
     const userEmail = req.mongoUser.email;
 
-    const content = await Content.findOne({ _id: contentId, status: 'published' });
+    const content = await Content.findOne({
+      _id: contentId,
+      status: 'published',
+    });
     if (!content) return res.status(404).json({ error: 'Content not found' });
 
-    const existingPurchase = await Purchase.findOne({ user: userId, content: contentId, status: 'completed' });
+    const existingPurchase = await Purchase.findOne({
+      user: userId,
+      content: contentId,
+      status: 'completed',
+    });
     if (existingPurchase) {
-      return res.status(400).json({ error: 'You have already purchased this content' });
+      return res
+        .status(400)
+        .json({ error: 'You have already purchased this content' });
     }
 
     const amountKobo = Math.round(content.price * 100);
@@ -438,7 +513,11 @@ exports.createPaymentIntent = async (req, res) => {
       status: 'pending',
     });
 
-    res.json({ authorizationUrl: paystackRes.data.authorization_url, reference, amount: content.price });
+    res.json({
+      authorizationUrl: paystackRes.data.authorization_url,
+      reference,
+      amount: content.price,
+    });
   } catch (error) {
     const status = error.status && error.status !== 401 ? error.status : 500;
     res.status(status).json({ error: error.message });
@@ -452,7 +531,9 @@ exports.createCartPaymentIntent = async (req, res) => {
     const userEmail = req.mongoUser.email;
 
     if (!Array.isArray(contentIds) || contentIds.length === 0) {
-      return res.status(400).json({ error: 'contentIds must be a non-empty array' });
+      return res
+        .status(400)
+        .json({ error: 'contentIds must be a non-empty array' });
     }
 
     const contents = await validateItems(contentIds, userId);
@@ -460,7 +541,9 @@ exports.createCartPaymentIntent = async (req, res) => {
     const amountKobo = Math.round(totalAmount * 100);
 
     if (amountKobo === 0) {
-      return res.status(400).json({ error: 'Cannot create a payment for $0 total' });
+      return res
+        .status(400)
+        .json({ error: 'Cannot create a payment for $0 total' });
     }
 
     const reference = `ps_cart_${userId}_${Date.now()}`;
@@ -474,13 +557,16 @@ exports.createCartPaymentIntent = async (req, res) => {
         userId: userId.toString(),
         contentIds: contentIds.join(','),
         itemCount: String(contents.length),
-        titles: contents.map(c => c.title).join(' | ').slice(0, 499),
+        titles: contents
+          .map((c) => c.title)
+          .join(' | ')
+          .slice(0, 499),
         cartType: 'cart',
       },
       callback_url: `${process.env.FRONTEND_URL}/payment-complete?ref=${reference}`,
     });
 
-    const purchaseRecords = contents.map(c => ({
+    const purchaseRecords = contents.map((c) => ({
       user: userId,
       content: c._id,
       amount: c.price,
@@ -496,7 +582,12 @@ exports.createCartPaymentIntent = async (req, res) => {
       reference,
       amount: totalAmount,
       itemCount: contents.length,
-      items: contents.map(c => ({ _id: c._id, title: c.title, price: c.price, type: c.type })),
+      items: contents.map((c) => ({
+        _id: c._id,
+        title: c.title,
+        price: c.price,
+        type: c.type,
+      })),
     });
   } catch (error) {
     const status = error.status && error.status !== 401 ? error.status : 500;
@@ -568,21 +659,32 @@ exports.createPaypalOrder = async (req, res) => {
     const { contentId } = req.body;
     const userId = req.mongoUser._id;
 
-    const content = await Content.findOne({ _id: contentId, status: 'published' });
+    const content = await Content.findOne({
+      _id: contentId,
+      status: 'published',
+    });
     if (!content) return res.status(404).json({ error: 'Content not found' });
 
-    const existingPurchase = await Purchase.findOne({ user: userId, content: contentId, status: 'completed' });
+    const existingPurchase = await Purchase.findOne({
+      user: userId,
+      content: contentId,
+      status: 'completed',
+    });
     if (existingPurchase) {
-      return res.status(400).json({ error: 'You have already purchased this content' });
+      return res
+        .status(400)
+        .json({ error: 'You have already purchased this content' });
     }
 
     const order = await paypalRequest('POST', '/v2/checkout/orders', {
       intent: 'CAPTURE',
-      purchase_units: [{
-        amount: { currency_code: 'USD', value: content.price.toFixed(2) },
-        description: content.title,
-        payee: { email_address: process.env.PAYPAL_RECEIVER_EMAIL },
-      }],
+      purchase_units: [
+        {
+          amount: { currency_code: 'USD', value: content.price.toFixed(2) },
+          description: content.title,
+          payee: { email_address: process.env.PAYPAL_RECEIVER_EMAIL },
+        },
+      ],
       application_context: {
         return_url: `${process.env.FRONTEND_URL}/payment-complete?provider=paypal`,
         cancel_url: `${process.env.FRONTEND_URL}/payment-cancelled`,
@@ -599,7 +701,7 @@ exports.createPaypalOrder = async (req, res) => {
       status: 'pending',
     });
 
-    const approvalUrl = order.links.find(l => l.rel === 'approve')?.href;
+    const approvalUrl = order.links.find((l) => l.rel === 'approve')?.href;
     res.json({ approvalUrl, orderId: order.id, amount: content.price });
   } catch (error) {
     const status = error.status && error.status !== 401 ? error.status : 500;
@@ -613,23 +715,29 @@ exports.createPaypalCartOrder = async (req, res) => {
     const userId = req.mongoUser._id;
 
     if (!Array.isArray(contentIds) || contentIds.length === 0) {
-      return res.status(400).json({ error: 'contentIds must be a non-empty array' });
+      return res
+        .status(400)
+        .json({ error: 'contentIds must be a non-empty array' });
     }
 
     const contents = await validateItems(contentIds, userId);
     const totalAmount = contents.reduce((sum, c) => sum + c.price, 0);
 
     if (totalAmount === 0) {
-      return res.status(400).json({ error: 'Cannot create a payment for $0 total' });
+      return res
+        .status(400)
+        .json({ error: 'Cannot create a payment for $0 total' });
     }
 
     const order = await paypalRequest('POST', '/v2/checkout/orders', {
       intent: 'CAPTURE',
-      purchase_units: [{
-        amount: { currency_code: 'USD', value: totalAmount.toFixed(2) },
-        description: `${contents.length} item(s)`,
-        payee: { email_address: process.env.PAYPAL_RECEIVER_EMAIL },
-      }],
+      purchase_units: [
+        {
+          amount: { currency_code: 'USD', value: totalAmount.toFixed(2) },
+          description: `${contents.length} item(s)`,
+          payee: { email_address: process.env.PAYPAL_RECEIVER_EMAIL },
+        },
+      ],
       application_context: {
         return_url: `${process.env.FRONTEND_URL}/payment-complete?provider=paypal`,
         cancel_url: `${process.env.FRONTEND_URL}/payment-cancelled`,
@@ -637,7 +745,7 @@ exports.createPaypalCartOrder = async (req, res) => {
       },
     });
 
-    const purchaseRecords = contents.map(c => ({
+    const purchaseRecords = contents.map((c) => ({
       user: userId,
       content: c._id,
       amount: c.price,
@@ -648,13 +756,18 @@ exports.createPaypalCartOrder = async (req, res) => {
 
     await Purchase.insertMany(purchaseRecords);
 
-    const approvalUrl = order.links.find(l => l.rel === 'approve')?.href;
+    const approvalUrl = order.links.find((l) => l.rel === 'approve')?.href;
     res.json({
       approvalUrl,
       orderId: order.id,
       amount: totalAmount,
       itemCount: contents.length,
-      items: contents.map(c => ({ _id: c._id, title: c.title, price: c.price, type: c.type })),
+      items: contents.map((c) => ({
+        _id: c._id,
+        title: c.title,
+        price: c.price,
+        type: c.type,
+      })),
     });
   } catch (error) {
     const status = error.status && error.status !== 401 ? error.status : 500;
@@ -667,7 +780,11 @@ exports.capturePaypalOrder = async (req, res) => {
     const { orderId } = req.params;
     const userId = req.mongoUser._id;
 
-    const capture = await paypalRequest('POST', `/v2/checkout/orders/${orderId}/capture`, {});
+    const capture = await paypalRequest(
+      'POST',
+      `/v2/checkout/orders/${orderId}/capture`,
+      {}
+    );
 
     if (capture.status !== 'COMPLETED') {
       await Purchase.updateMany(
@@ -756,15 +873,24 @@ exports.refundPayment = async (req, res) => {
 
     if (!purchase) return res.status(404).json({ error: 'Purchase not found' });
     if (purchase.status !== 'completed') {
-      return res.status(400).json({ error: 'Only completed purchases can be refunded' });
+      return res
+        .status(400)
+        .json({ error: 'Only completed purchases can be refunded' });
     }
 
     if (purchase.paymentMethod === 'paypal') {
-      return res.status(400).json({ error: 'PayPal refunds must be processed manually via the PayPal dashboard' });
+      return res
+        .status(400)
+        .json({
+          error:
+            'PayPal refunds must be processed manually via the PayPal dashboard',
+        });
     }
 
     if (purchase.paymentMethod === 'stripe') {
-      const refund = await stripe.refunds.create({ payment_intent: purchase.stripePaymentIntentId });
+      const refund = await stripe.refunds.create({
+        payment_intent: purchase.stripePaymentIntentId,
+      });
       if (refund.status === 'succeeded') {
         purchase.status = 'refunded';
         await purchase.save();
@@ -774,7 +900,9 @@ exports.refundPayment = async (req, res) => {
     }
 
     // Paystack
-    const refundRes = await paystack.refund({ transaction: purchase.paystackReference });
+    const refundRes = await paystack.refund({
+      transaction: purchase.paystackReference,
+    });
     if (refundRes.status) {
       purchase.status = 'refunded';
       await purchase.save();

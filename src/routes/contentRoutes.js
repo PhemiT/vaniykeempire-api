@@ -1,5 +1,5 @@
 const express = require('express');
-const router  = express.Router();
+const router = express.Router();
 const contentController = require('../controllers/contentController_');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { uploadContent } = require('../config/cloudinary');
@@ -10,23 +10,66 @@ router.get('/:contentId/preview', contentController.getPreview);
 
 // ─── Transcode webhooks (no user auth — verified by webhook secret header) ──
 router.post('/transcode-complete', contentController.transcodeComplete);
-router.post('/preview-transcode-complete', contentController.previewTranscodeComplete);
+router.post(
+  '/preview-transcode-complete',
+  contentController.previewTranscodeComplete
+);
 
 // ─── User routes (authenticated) ───────────────────────────────────────────
 router.get('/user/purchases', authenticate, contentController.getUserPurchases);
 router.get('/:contentId/access', authenticate, contentController.accessContent);
 
 // ─── Admin: static-segment routes MUST come before /:contentId wildcard ────
-router.get('/audio-upload-signature', authenticate, requireAdmin, contentController.getAudioUploadSignature);
-router.get('/admin/all', authenticate, requireAdmin, contentController.getAllContent);
-router.get('/admin/:contentId', authenticate, requireAdmin, contentController.getContentAdmin);
-router.get('/upload-signature', authenticate, requireAdmin, contentController.getUploadSignature);
-router.get('/video-upload-url', authenticate, requireAdmin, contentController.getVideoUploadUrl);
-router.get('/:contentId/preview-upload-url', authenticate, requireAdmin, contentController.getPreviewUploadUrl);
+router.get(
+  '/audio-upload-signature',
+  authenticate,
+  requireAdmin,
+  contentController.getAudioUploadSignature
+);
+router.get(
+  '/admin/all',
+  authenticate,
+  requireAdmin,
+  contentController.getAllContent
+);
+router.get(
+  '/admin/:contentId',
+  authenticate,
+  requireAdmin,
+  contentController.getContentAdmin
+);
+router.get(
+  '/upload-signature',
+  authenticate,
+  requireAdmin,
+  contentController.getUploadSignature
+);
+router.get(
+  '/video-upload-url',
+  authenticate,
+  requireAdmin,
+  contentController.getVideoUploadUrl
+);
+router.get(
+  '/:contentId/preview-upload-url',
+  authenticate,
+  requireAdmin,
+  contentController.getPreviewUploadUrl
+);
 
 // Admin views — patch/delete must be above the /:contentId wildcard group
-router.patch('/admin/:contentId/views', authenticate, requireAdmin, contentController.setViews);
-router.delete('/admin/:contentId/views', authenticate, requireAdmin, contentController.resetViews);
+router.patch(
+  '/admin/:contentId/views',
+  authenticate,
+  requireAdmin,
+  contentController.setViews
+);
+router.delete(
+  '/admin/:contentId/views',
+  authenticate,
+  requireAdmin,
+  contentController.resetViews
+);
 
 // ─── Create routes ─────────────────────────────────────────────────────────
 
@@ -45,7 +88,7 @@ router.post(
   authenticate,
   requireAdmin,
   uploadContent.fields([
-    { name: 'file',      maxCount: 1 },
+    { name: 'file', maxCount: 1 },
     { name: 'thumbnail', maxCount: 1 },
   ]),
   contentController.createContent
@@ -86,7 +129,7 @@ router.put(
   authenticate,
   requireAdmin,
   uploadContent.fields([
-    { name: 'file',      maxCount: 1 },
+    { name: 'file', maxCount: 1 },
     { name: 'thumbnail', maxCount: 1 },
   ]),
   contentController.updateContent
@@ -113,8 +156,18 @@ router.put(
 // ─── Per-item routes (wildcard last) ───────────────────────────────────────
 router.post('/:contentId/claim', authenticate, contentController.claimFree);
 router.post('/:contentId/view', contentController.incrementView);
-router.post('/:contentId/queue-preview-transcode', authenticate, requireAdmin, contentController.queuePreviewTranscode);
-router.delete('/:contentId', authenticate, requireAdmin, contentController.deleteContent);
+router.post(
+  '/:contentId/queue-preview-transcode',
+  authenticate,
+  requireAdmin,
+  contentController.queuePreviewTranscode
+);
+router.delete(
+  '/:contentId',
+  authenticate,
+  requireAdmin,
+  contentController.deleteContent
+);
 router.get('/:contentId', contentController.getContent);
 
 module.exports = router;

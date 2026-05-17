@@ -1,12 +1,12 @@
 const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const multer = require('multer');
-const path   = require('path');
-const fs     = require('fs');
+const path = require('path');
+const fs = require('fs');
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key:    process.env.CLOUDINARY_API_KEY,
+  api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
@@ -45,7 +45,10 @@ const diskStorage = multer.diskStorage({
 
 // ─── Thumbnail uploader from disk ─────────────────────────────────────────
 // Used when a thumbnail arrives alongside a video upload (disk storage path).
-async function uploadThumbnailFromDisk(filePath, folder = 'content/thumbnails') {
+async function uploadThumbnailFromDisk(
+  filePath,
+  folder = 'content/thumbnails'
+) {
   return new Promise((resolve, reject) => {
     cloudinary.uploader.upload(
       filePath,
@@ -64,13 +67,13 @@ async function uploadThumbnailFromDisk(filePath, folder = 'content/thumbnails') 
 // For PDFs, audio, thumbnails — streams to Cloudinary
 const uploadContent = multer({
   storage: contentStorage,
-  limits:  { fileSize: 2 * 1024 * 1024 * 1024 },
+  limits: { fileSize: 2 * 1024 * 1024 * 1024 },
 });
 
 // For video files — saves to disk so the controller can stream to R2
 const uploadVideo = multer({
   storage: diskStorage,
-  limits:  { fileSize: 10 * 1024 * 1024 * 1024 }, // 10GB
+  limits: { fileSize: 10 * 1024 * 1024 * 1024 }, // 10GB
   fileFilter: (req, file, cb) => {
     if (file.fieldname === 'file' && !file.mimetype.startsWith('video/')) {
       return cb(new Error('Only video files are accepted on this route'));
@@ -81,28 +84,34 @@ const uploadVideo = multer({
 
 function generateUploadSignature(folder = 'content/videos') {
   const timestamp = Math.round(Date.now() / 1000);
-  const params    = { folder, timestamp };
-  const signature = cloudinary.utils.api_sign_request(params, process.env.CLOUDINARY_API_SECRET);
+  const params = { folder, timestamp };
+  const signature = cloudinary.utils.api_sign_request(
+    params,
+    process.env.CLOUDINARY_API_SECRET
+  );
   return {
     signature,
     timestamp,
     folder,
     cloudName: process.env.CLOUDINARY_CLOUD_NAME,
-    apiKey:    process.env.CLOUDINARY_API_KEY,
+    apiKey: process.env.CLOUDINARY_API_KEY,
   };
 }
 
 function generateAudioUploadSignature(folder = 'content/audio') {
   const timestamp = Math.round(Date.now() / 1000);
-  const params    = { folder, timestamp };
-  const signature = cloudinary.utils.api_sign_request(params, process.env.CLOUDINARY_API_SECRET);
+  const params = { folder, timestamp };
+  const signature = cloudinary.utils.api_sign_request(
+    params,
+    process.env.CLOUDINARY_API_SECRET
+  );
   return {
     signature,
     timestamp,
     folder,
     resourceType: 'video',
     cloudName: process.env.CLOUDINARY_CLOUD_NAME,
-    apiKey:    process.env.CLOUDINARY_API_KEY,
+    apiKey: process.env.CLOUDINARY_API_KEY,
   };
 }
 
@@ -112,5 +121,5 @@ module.exports = {
   uploadVideo,
   uploadThumbnailFromDisk,
   generateUploadSignature,
-  generateAudioUploadSignature
+  generateAudioUploadSignature,
 };

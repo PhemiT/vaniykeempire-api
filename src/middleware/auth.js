@@ -10,7 +10,10 @@ const authenticate = async (req, res, next) => {
     }
 
     // Verify the token with Supabase
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser(token);
 
     if (error || !user) {
       return res.status(401).json({ error: 'Invalid token' });
@@ -23,27 +26,34 @@ const authenticate = async (req, res, next) => {
     // create it now using the Supabase user data
     if (!mongoUser) {
       try {
-        const { data: supabaseData } = await supabaseAdmin.auth.admin.getUserById(user.id);
+        const { data: supabaseData } =
+          await supabaseAdmin.auth.admin.getUserById(user.id);
         const supabaseUser = supabaseData?.user;
-        const provider     = supabaseUser?.app_metadata?.provider ?? 'email';
+        const provider = supabaseUser?.app_metadata?.provider ?? 'email';
 
         mongoUser = await User.create({
-          supabaseId:    user.id,
-          email:         user.email,
-          name:          user.user_metadata?.full_name
-                      || user.user_metadata?.name
-                      || user.email.split('@')[0],
+          supabaseId: user.id,
+          email: user.email,
+          name:
+            user.user_metadata?.full_name ||
+            user.user_metadata?.name ||
+            user.email.split('@')[0],
           emailVerified: !!user.email_confirmed_at,
-          authProvider:  provider,
-          role:          'user',
+          authProvider: provider,
+          role: 'user',
         });
       } catch (createError) {
-        console.error('Failed to auto-create user from OAuth:', createError.message);
-        return res.status(404).json({ error: 'User not found and could not be created' });
+        console.error(
+          'Failed to auto-create user from OAuth:',
+          createError.message
+        );
+        return res
+          .status(404)
+          .json({ error: 'User not found and could not be created' });
       }
     }
 
-    req.user      = user;
+    req.user = user;
     req.mongoUser = mongoUser;
     next();
   } catch (error) {

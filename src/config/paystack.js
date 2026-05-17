@@ -13,7 +13,7 @@ const paystack = {
         'Content-Type': 'application/json',
       },
       data,
-    }).then(res => res.data);
+    }).then((res) => res.data);
   },
 
   initializeTransaction: function (data) {

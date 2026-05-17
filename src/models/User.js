@@ -4,40 +4,40 @@ const userSchema = new mongoose.Schema({
   supabaseId: {
     type: String,
     required: true,
-    unique: true
+    unique: true,
   },
   email: {
     type: String,
     required: true,
     unique: true,
-    lowercase: true
+    lowercase: true,
   },
   name: {
     type: String,
-    required: true
+    required: true,
   },
   role: {
     type: String,
     enum: ['user', 'admin'],
-    default: 'user'
+    default: 'user',
   },
   emailVerified: {
     type: Boolean,
-    default: false
+    default: false,
   },
   createdAt: {
     type: Date,
-    default: Date.now
+    default: Date.now,
   },
   updatedAt: {
     type: Date,
-    default: Date.now
+    default: Date.now,
   },
-  authProvider: { 
-    type: String, 
-    enum: ['local', 'google'], 
-    default: 'local' 
-  }
+  authProvider: {
+    type: String,
+    enum: ['local', 'google'],
+    default: 'local',
+  },
 });
 
 module.exports = mongoose.model('User', userSchema);

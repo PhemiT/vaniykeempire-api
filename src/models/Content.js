@@ -1,11 +1,14 @@
 const mongoose = require('mongoose');
 
-const trackSchema = new mongoose.Schema({
-  title:        { type: String, required: true },
-  fileUrl:      { type: String, required: true },
-  filePublicId: { type: String, required: true },
-  order:        { type: Number, required: true },
-}, { _id: false });
+const trackSchema = new mongoose.Schema(
+  {
+    title: { type: String, required: true },
+    fileUrl: { type: String, required: true },
+    filePublicId: { type: String, required: true },
+    order: { type: Number, required: true },
+  },
+  { _id: false }
+);
 
 const contentSchema = new mongoose.Schema({
   title: {

@@ -17,8 +17,8 @@ exports.listComments = async (req, res) => {
 
     res.json({
       comments,
-      totalPages:    Math.ceil(count / limit),
-      currentPage:   Number(page),
+      totalPages: Math.ceil(count / limit),
+      currentPage: Number(page),
       totalComments: count,
     });
   } catch (error) {
@@ -36,16 +36,21 @@ exports.createComment = async (req, res) => {
       return res.status(400).json({ error: 'Comment body is required' });
     }
     if (body.length > 1000) {
-      return res.status(400).json({ error: 'Comment must be 1000 characters or fewer' });
+      return res
+        .status(400)
+        .json({ error: 'Comment must be 1000 characters or fewer' });
     }
 
-    const content = await Content.findOne({ _id: contentId, status: 'published' });
+    const content = await Content.findOne({
+      _id: contentId,
+      status: 'published',
+    });
     if (!content) return res.status(404).json({ error: 'Content not found' });
 
     const comment = await Comment.create({
       content: contentId,
-      user:    req.mongoUser._id,
-      body:    body.trim(),
+      user: req.mongoUser._id,
+      body: body.trim(),
     });
 
     await comment.populate('user', 'name');
@@ -65,18 +70,22 @@ exports.updateComment = async (req, res) => {
       return res.status(400).json({ error: 'Comment body is required' });
     }
     if (body.length > 1000) {
-      return res.status(400).json({ error: 'Comment must be 1000 characters or fewer' });
+      return res
+        .status(400)
+        .json({ error: 'Comment must be 1000 characters or fewer' });
     }
 
     const comment = await Comment.findById(commentId);
     if (!comment) return res.status(404).json({ error: 'Comment not found' });
 
     if (comment.user.toString() !== req.mongoUser._id.toString()) {
-      return res.status(403).json({ error: 'You can only edit your own comments' });
+      return res
+        .status(403)
+        .json({ error: 'You can only edit your own comments' });
     }
 
-    comment.body     = body.trim();
-    comment.edited   = true;
+    comment.body = body.trim();
+    comment.edited = true;
     comment.editedAt = new Date();
     await comment.save();
     await comment.populate('user', 'name');
@@ -96,7 +105,9 @@ exports.deleteComment = async (req, res) => {
     if (!comment) return res.status(404).json({ error: 'Comment not found' });
 
     if (comment.user.toString() !== req.mongoUser._id.toString()) {
-      return res.status(403).json({ error: 'You can only delete your own comments' });
+      return res
+        .status(403)
+        .json({ error: 'You can only delete your own comments' });
     }
 
     await Comment.findByIdAndDelete(commentId);
@@ -124,8 +135,8 @@ exports.adminListComments = async (req, res) => {
 
     res.json({
       comments,
-      totalPages:    Math.ceil(count / limit),
-      currentPage:   Number(page),
+      totalPages: Math.ceil(count / limit),
+      currentPage: Number(page),
       totalComments: count,
     });
   } catch (error) {
@@ -143,14 +154,16 @@ exports.adminUpdateComment = async (req, res) => {
       return res.status(400).json({ error: 'Comment body is required' });
     }
     if (body.length > 1000) {
-      return res.status(400).json({ error: 'Comment must be 1000 characters or fewer' });
+      return res
+        .status(400)
+        .json({ error: 'Comment must be 1000 characters or fewer' });
     }
 
     const comment = await Comment.findById(commentId);
     if (!comment) return res.status(404).json({ error: 'Comment not found' });
 
-    comment.body     = body.trim();
-    comment.edited   = true;
+    comment.body = body.trim();
+    comment.edited = true;
     comment.editedAt = new Date();
     await comment.save();
     await comment.populate('user', 'name email');

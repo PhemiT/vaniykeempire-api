@@ -2,25 +2,28 @@ const Category = require('../models/Category');
 
 // Helper function to create slug
 const createSlug = (name) => {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
 };
 
 // Admin: Create category
 exports.createCategory = async (req, res) => {
   try {
     const { name, description } = req.body;
-    
+
     const slug = createSlug(name);
 
     const category = await Category.create({
       name,
       slug,
-      description
+      description,
     });
 
-    res.status(201).json({ 
+    res.status(201).json({
       message: 'Category created successfully',
-      category 
+      category,
     });
   } catch (error) {
     if (error.code === 11000) {
@@ -37,7 +40,7 @@ exports.updateCategory = async (req, res) => {
     const { name, description } = req.body;
 
     const category = await Category.findById(categoryId);
-    
+
     if (!category) {
       return res.status(404).json({ error: 'Category not found' });
     }
@@ -50,9 +53,9 @@ exports.updateCategory = async (req, res) => {
 
     await category.save();
 
-    res.json({ 
+    res.json({
       message: 'Category updated successfully',
-      category 
+      category,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -65,7 +68,7 @@ exports.deleteCategory = async (req, res) => {
     const { categoryId } = req.params;
 
     const category = await Category.findByIdAndDelete(categoryId);
-    
+
     if (!category) {
       return res.status(404).json({ error: 'Category not found' });
     }
@@ -93,7 +96,7 @@ exports.getCategoryBySlug = async (req, res) => {
     const { slug } = req.params;
 
     const category = await Category.findOne({ slug });
-    
+
     if (!category) {
       return res.status(404).json({ error: 'Category not found' });
     }

@@ -4,20 +4,20 @@ const categorySchema = new mongoose.Schema({
   name: {
     type: String,
     required: true,
-    unique: true
+    unique: true,
   },
   slug: {
     type: String,
     required: true,
-    unique: true
+    unique: true,
   },
   description: {
-    type: String
+    type: String,
   },
   createdAt: {
     type: Date,
-    default: Date.now
-  }
+    default: Date.now,
+  },
 });
 
 module.exports = mongoose.model('Category', categorySchema);

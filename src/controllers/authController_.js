@@ -17,16 +17,16 @@ exports.signup = async (req, res) => {
 
     const user = await User.create({
       supabaseId: authData.user.id,
-      email:      authData.user.email,
+      email: authData.user.email,
       name,
     });
 
     res.status(201).json({
       message: 'User created successfully',
       user: {
-        id:    user._id,
+        id: user._id,
         email: user.email,
-        name:  user.name,
+        name: user.name,
       },
       session: authData.session,
     });
@@ -58,10 +58,10 @@ exports.login = async (req, res) => {
     res.json({
       message: 'Login successful',
       user: {
-        id:    user._id,
+        id: user._id,
         email: user.email,
-        name:  user.name,
-        role:  user.role,
+        name: user.name,
+        role: user.role,
       },
       session: data.session,
     });
@@ -86,33 +86,35 @@ exports.getProfile = async (req, res) => {
     if (!user) {
       // User authenticated via Supabase (e.g. Google OAuth) but has no MongoDB record yet.
       // Fetch their details from Supabase and create the record now.
-      const { data: supabaseData, error } = await supabaseAdmin.auth.admin.getUserById(supabaseId);
+      const { data: supabaseData, error } =
+        await supabaseAdmin.auth.admin.getUserById(supabaseId);
 
       if (error || !supabaseData?.user) {
         return res.status(404).json({ error: 'User not found' });
       }
 
       const supabaseUser = supabaseData.user;
-      const provider     = supabaseUser.app_metadata?.provider ?? 'email';
+      const provider = supabaseUser.app_metadata?.provider ?? 'email';
 
       user = await User.create({
         supabaseId,
-        email:         supabaseUser.email,
-        name:          supabaseUser.user_metadata?.full_name
-                    || supabaseUser.user_metadata?.name
-                    || supabaseUser.email.split('@')[0],
+        email: supabaseUser.email,
+        name:
+          supabaseUser.user_metadata?.full_name ||
+          supabaseUser.user_metadata?.name ||
+          supabaseUser.email.split('@')[0],
         emailVerified: !!supabaseUser.email_confirmed_at,
-        authProvider:  provider,
-        role:          'user',
+        authProvider: provider,
+        role: 'user',
       });
     }
 
     res.json({
       user: {
-        id:           user._id,
-        email:        user.email,
-        name:         user.name,
-        role:         user.role,
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
         emailVerified: user.emailVerified,
       },
     });
@@ -173,11 +175,11 @@ exports.googleCallback = async (req, res) => {
 
     if (!user) {
       user = await User.create({
-        supabaseId:    supabaseUser.id,
-        email:         supabaseUser.email,
-        name:          supabaseUser.user_metadata?.full_name || supabaseUser.email,
+        supabaseId: supabaseUser.id,
+        email: supabaseUser.email,
+        name: supabaseUser.user_metadata?.full_name || supabaseUser.email,
         emailVerified: !!supabaseUser.email_confirmed_at,
-        authProvider:  'google',
+        authProvider: 'google',
       });
     }
 
@@ -231,7 +233,7 @@ exports.resendVerificationEmail = async (req, res) => {
     const { email } = req.body;
 
     const { error } = await supabase.auth.resend({
-      type:  'signup',
+      type: 'signup',
       email,
       options: {
         emailRedirectTo: `${process.env.FRONTEND_URL}/verify-email`,
@@ -264,7 +266,7 @@ exports.verifyEmail = async (req, res) => {
     const user = await User.findOne({ supabaseId: data.user.id });
     if (user) {
       user.emailVerified = true;
-      user.updatedAt     = new Date();
+      user.updatedAt = new Date();
       await user.save();
     }
 
@@ -297,18 +299,18 @@ exports.signupAsAdmin = async (req, res) => {
 
     const user = await User.create({
       supabaseId: authData.user.id,
-      email:      authData.user.email,
+      email: authData.user.email,
       name,
-      role:       'admin',
+      role: 'admin',
     });
 
     res.status(201).json({
       message: 'Admin user created successfully',
       user: {
-        id:    user._id,
+        id: user._id,
         email: user.email,
-        name:  user.name,
-        role:  user.role,
+        name: user.name,
+        role: user.role,
       },
       session: authData.session,
     });
@@ -346,10 +348,10 @@ exports.adminLogin = async (req, res) => {
     res.json({
       message: 'Admin login successful',
       user: {
-        id:    user._id,
+        id: user._id,
         email: user.email,
-        name:  user.name,
-        role:  user.role,
+        name: user.name,
+        role: user.role,
       },
       session: data.session,
     });

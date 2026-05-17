@@ -15,7 +15,7 @@ const purchaseSchema = new mongoose.Schema({
     type: Number,
     required: true,
   },
-  stripePaymentIntentId: {  
+  stripePaymentIntentId: {
     type: String,
   },
   paystackReference: {
