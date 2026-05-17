@@ -60,7 +60,7 @@ jobs:
 
       - name: Notify backend
         run: |
-          curl -f -X POST ${{ secrets.BACKEND_WEBHOOK_URL }}/api/admin/content/preview-transcode-complete \
+          curl -f -X POST ${{ secrets.BACKEND_WEBHOOK_BASE_URL }}/api/content/preview-transcode-complete \
             -H "Content-Type: application/json" \
             -H "x-webhook-secret: ${{ secrets.BACKEND_WEBHOOK_SECRET }}" \
             -d '{
