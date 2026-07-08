@@ -6,6 +6,7 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 // Webhooks — raw body required, no auth
 router.post('/webhook/stripe', paymentController.handleStripeWebhook);
 router.post('/webhook/paystack', paymentController.handlePaystackWebhook);
+router.post('/webhook/korapay', paymentController.handleKorapayWebhook);
 
 // User: Stripe
 router.post(
@@ -51,6 +52,29 @@ router.post(
   '/paypal/capture/:orderId',
   authenticate,
   paymentController.capturePaypalOrder
+);
+
+// User: Korapay
+router.post(
+  '/korapay/create-payment-intent',
+  authenticate,
+  paymentController.createKorapayPaymentIntent
+);
+router.post(
+  '/korapay/create-cart-checkout',
+  authenticate,
+  paymentController.createKorapayCartPaymentIntent
+);
+router.get(
+  '/verify/korapay/:reference',
+  authenticate,
+  paymentController.verifyKorapayPayment
+);
+
+router.post(
+  '/bundle/korapay',
+  authenticate,
+  paymentController.createBundleKorapayIntent
 );
 
 // Shared

@@ -1,6 +1,8 @@
 const stripe = require('../config/stripe');
 const paystack = require('../config/paystack');
+const korapay = require('../config/korapay');
 const axios = require('axios');
+const { toNaira } = require('../config/fxRate');
 const Content = require('../models/Content');
 const Purchase = require('../models/Purchase');
 const Bundle = require('../models/Bundle');
@@ -822,6 +824,7 @@ exports.getPaymentStatus = async (req, res) => {
     const purchase = await Purchase.findOne({
       $or: [
         { stripePaymentIntentId: paymentIntentId },
+        { korapayReference: paymentIntentId },
         { paystackReference: paymentIntentId },
         { paypalOrderId: paymentIntentId },
       ],
@@ -887,6 +890,12 @@ exports.refundPayment = async (req, res) => {
         });
     }
 
+    if (purchase.paymentMethod === 'korapay') {
+      return res.status(400).json({
+        error: 'Korapay refunds must be processed manually via the Kora dashboard',
+      });
+    }
+
     if (purchase.paymentMethod === 'stripe') {
       const refund = await stripe.refunds.create({
         payment_intent: purchase.stripePaymentIntentId,
@@ -912,4 +921,239 @@ exports.refundPayment = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+};
+
+// ═══════════════════════════════════════════════════════════
+// KORAPAY
+// ═══════════════════════════════════════════════════════════
+
+exports.createKorapayPaymentIntent = async (req, res) => {
+  try {
+    const { contentId } = req.body;
+    const userId = req.mongoUser._id;
+    const userEmail = req.mongoUser.email;
+    const userName = req.mongoUser.name;
+
+    const content = await Content.findOne({
+      _id: contentId,
+      status: 'published',
+    });
+    if (!content) return res.status(404).json({ error: 'Content not found' });
+
+    const existingPurchase = await Purchase.findOne({
+      user: userId,
+      content: contentId,
+      status: 'completed',
+    });
+    if (existingPurchase) {
+      return res
+        .status(400)
+        .json({ error: 'You have already purchased this content' });
+    }
+
+    const reference = `kp_single_${userId}_${contentId}_${Date.now()}`;
+
+    const korapayRes = await korapay.initializeCharge({
+      amount: content.price,
+      currency: 'USD',
+      payment_currency: 'NGN',
+      settlement_currency: 'USD',
+      reference,
+      redirect_url: `${process.env.FRONTEND_URL}/payment-complete?ref=${reference}&provider=korapay`,
+      notification_url: `${process.env.BACKEND_URL}/api/payments/webhook/korapay`,
+      customer: { email: userEmail, name: userName },
+    });
+
+    await Purchase.create({
+      user: userId,
+      content: contentId,
+      amount: content.price,
+      korapayReference: reference,
+      paymentMethod: 'korapay',
+      status: 'pending',
+    });
+
+    res.json({
+      checkoutUrl: korapayRes.data.checkout_url,
+      reference,
+      amount: content.price,
+    });
+  } catch (error) {
+    const status = error.status && error.status !== 401 ? error.status : 500;
+    res.status(status).json({ error: error.response?.data?.message || error.message });
+  }
+};
+
+exports.createKorapayCartPaymentIntent = async (req, res) => {
+  try {
+    const { contentIds } = req.body;
+    const userId = req.mongoUser._id;
+    const userEmail = req.mongoUser.email;
+    const userName = req.mongoUser.name;
+
+    if (!Array.isArray(contentIds) || contentIds.length === 0) {
+      return res
+        .status(400)
+        .json({ error: 'contentIds must be a non-empty array' });
+    }
+
+    const contents = await validateItems(contentIds, userId);
+    const totalAmount = contents.reduce((sum, c) => sum + c.price, 0);
+
+    if (totalAmount === 0) {
+      return res
+        .status(400)
+        .json({ error: 'Cannot create a payment for $0 total' });
+    }
+
+    const reference = `kp_cart_${userId}_${Date.now()}`;
+
+    const korapayPayload = {
+      amount: await toNaira(totalAmount),
+      currency: 'NGN',
+      reference,
+      redirect_url: `${process.env.FRONTEND_URL}/payment-complete?ref=${reference}&provider=korapay`,
+      notification_url: `${process.env.BACKEND_URL}/api/payments/webhook/korapay`,
+      customer: { email: userEmail, name: userName },
+    };
+    const korapayRes = await korapay.initializeCharge(korapayPayload);
+
+    const purchaseRecords = contents.map((c) => ({
+      user: userId,
+      content: c._id,
+      amount: c.price,
+      korapayReference: reference,
+      paymentMethod: 'korapay',
+      status: 'pending',
+    }));
+    await Purchase.insertMany(purchaseRecords);
+
+    res.json({
+      checkoutUrl: korapayRes.data.checkout_url,
+      reference,
+      amount: totalAmount,
+      itemCount: contents.length,
+      items: contents.map((c) => ({
+        _id: c._id,
+        title: c.title,
+        price: c.price,
+        type: c.type,
+      })),
+    });
+  } catch (error) {
+    console.error('Korapay error response:', error.response?.data);
+    const status = error.status && error.status !== 401 ? error.status : 500;
+    res.status(status).json({ error: error.response?.data?.message || error.message });
+  }
+};
+
+exports.createBundleKorapayIntent = async (req, res) => {
+  try {
+    const { bundleId } = req.body;
+    const userId = req.mongoUser._id;
+    const userEmail = req.mongoUser.email;
+    const userName = req.mongoUser.name;
+
+    const { bundle, itemsToBuy, chargeAmount } = await prepareBundleCheckout(
+      bundleId,
+      userId
+    );
+
+    const reference = `kp_bundle_${userId}_${bundleId}_${Date.now()}`;
+
+    const korapayPayload = {
+      amount: await toNaira(totalAmount),
+      currency: 'NGN',
+      reference,
+      redirect_url: `${process.env.FRONTEND_URL}/payment-complete?ref=${reference}&provider=korapay`,
+      notification_url: `${process.env.BACKEND_URL}/api/payments/webhook/korapay`,
+      customer: { email: userEmail, name: userName },
+    };
+    const korapayRes = await korapay.initializeCharge(korapayPayload);
+
+    const purchaseRecords = itemsToBuy.map((item) => ({
+      user: userId,
+      content: item._id,
+      amount: Math.round((chargeAmount / itemsToBuy.length) * 100) / 100,
+      korapayReference: reference,
+      paymentMethod: 'korapay',
+      status: 'pending',
+    }));
+    await Purchase.insertMany(purchaseRecords);
+
+    res.json({
+      checkoutUrl: korapayRes.data.checkout_url,
+      reference,
+      amount: chargeAmount,
+      itemCount: itemsToBuy.length,
+      items: itemsToBuy.map((i) => ({
+        _id: i._id,
+        title: i.title,
+        price: i.price,
+        type: i.type,
+      })),
+    });
+  } catch (error) {
+    const status = error.status && error.status !== 401 ? error.status : 500;
+    res.status(status).json({ error: error.response?.data?.message || error.message });
+  }
+};
+
+exports.verifyKorapayPayment = async (req, res) => {
+  try {
+    const { reference } = req.params;
+    const userId = req.mongoUser._id;
+
+    const verification = await korapay.verifyCharge(reference);
+
+    if (verification.data.status !== 'success') {
+      await Purchase.updateMany(
+        { korapayReference: reference, user: userId },
+        { $set: { status: 'failed' } }
+      );
+      return res.status(400).json({ error: 'Payment not successful' });
+    }
+
+    await Purchase.updateMany(
+      { korapayReference: reference, user: userId },
+      { $set: { status: 'completed' } }
+    );
+
+    const purchases = await Purchase.find({
+      korapayReference: reference,
+      user: userId,
+    }).populate('content', 'title description type thumbnailUrl');
+
+    res.json({ purchases });
+  } catch (error) {
+    res.status(500).json({ error: error.response?.data?.message || error.message });
+  }
+};
+
+exports.handleKorapayWebhook = async (req, res) => {
+  const crypto = require('crypto');
+  const hash = crypto
+    .createHmac('sha256', process.env.KORAPAY_SECRET_KEY)
+    .update(JSON.stringify(req.body.data))
+    .digest('hex');
+
+  if (hash !== req.headers['x-korapay-signature']) {
+    return res.sendStatus(200); // ack but don't act — not a genuine Kora request
+  }
+
+  const { event, data } = req.body;
+
+  if (event === 'charge.success') {
+    await Purchase.updateMany(
+      { korapayReference: data.reference },
+      { $set: { status: 'completed' } }
+    );
+  } else if (event === 'charge.failed') {
+    await Purchase.updateMany(
+      { korapayReference: data.reference },
+      { $set: { status: 'failed' } }
+    );
+  }
+
+  res.sendStatus(200);
 };

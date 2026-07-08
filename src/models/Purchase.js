@@ -21,12 +21,15 @@ const purchaseSchema = new mongoose.Schema({
   paystackReference: {
     type: String,
   },
+  korapayReference: { 
+    type: String,
+  },
   paypalOrderId: {
     type: String,
   },
   paymentMethod: {
     type: String,
-    enum: ['stripe', 'paystack', 'paypal', 'free'],
+    enum: ['stripe', 'paystack', 'korapay', 'paypal', 'free'],
   },
   status: {
     type: String,
