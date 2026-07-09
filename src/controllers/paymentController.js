@@ -2,7 +2,7 @@ const stripe = require('../config/stripe');
 const paystack = require('../config/paystack');
 const korapay = require('../config/korapay');
 const axios = require('axios');
-const { toNaira } = require('../config/fxRate');
+const { toNaira, getUsdToNgnRate } = require('../config/fxRate');
 const Content = require('../models/Content');
 const Purchase = require('../models/Purchase');
 const Bundle = require('../models/Bundle');
@@ -1156,4 +1156,13 @@ exports.handleKorapayWebhook = async (req, res) => {
   }
 
   res.sendStatus(200);
+};
+
+exports.getKorapayFxRate = async (req, res) => {
+  try {
+    const rate = await getUsdToNgnRate();
+    res.json({ rate });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 };

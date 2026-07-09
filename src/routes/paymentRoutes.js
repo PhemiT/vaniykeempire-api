@@ -77,6 +77,12 @@ router.post(
   paymentController.createBundleKorapayIntent
 );
 
+router.get(
+  '/korapay/fx-rate',
+  authenticate,
+  paymentController.getKorapayFxRate
+);
+
 // Shared
 router.get(
   '/status/:paymentIntentId',
