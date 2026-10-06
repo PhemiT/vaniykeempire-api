@@ -9,6 +9,8 @@ const paymentRoutes = require('./routes/paymentRoutes');
 const commentsRoutes = require('./routes/commentsRoutes');
 const bundlesRoutes = require('./routes/bundleRoutes');
 const aboutRoutes = require('./routes/aboutRoutes');
+const chatRoutes = require('./routes/chat');              
+const instagramRoutes = require('./routes/instagram'); 
 
 const app = express();
 
@@ -53,6 +55,8 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/about', aboutRoutes);
 app.use('/api/bundles', bundlesRoutes);
 app.use('/api', commentsRoutes);
+app.use('/api/chat', chatRoutes);                         
+app.use('/api/instagram/webhook', instagramRoutes); 
 
 // ─── Health check ──────────────────────────────────────────────────────────
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
