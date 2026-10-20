@@ -1,5 +1,20 @@
 const { supabase, supabaseAdmin } = require('../config/supabase');
 const User = require('../models/User');
+const Purchase = require('../models/Purchase');
+
+// Attach guest purchases to the account. Only runs for verified emails,
+// otherwise anyone could sign up with someone else's email and take their purchases.
+const claimGuestPurchases = async (user) => {
+  if (!user?.emailVerified) return;
+  try {
+    await Purchase.updateMany(
+      { guestEmail: user.email.toLowerCase(), user: { $exists: false } },
+      { $set: { user: user._id }, $unset: { guestEmail: 1 } }
+    );
+  } catch (err) {
+    console.error('Failed to claim guest purchases:', err.message);
+  }
+};
 
 // ─── Signup ────────────────────────────────────────────────
 exports.signup = async (req, res) => {
@@ -55,6 +70,8 @@ exports.login = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    await claimGuestPurchases(user);
+
     res.json({
       message: 'Login successful',
       user: {
@@ -108,6 +125,8 @@ exports.getProfile = async (req, res) => {
         role: 'user',
       });
     }
+
+    await claimGuestPurchases(user);
 
     res.json({
       user: {
@@ -268,6 +287,7 @@ exports.verifyEmail = async (req, res) => {
       user.emailVerified = true;
       user.updatedAt = new Date();
       await user.save();
+      await claimGuestPurchases(user);
     }
 
     res.json({

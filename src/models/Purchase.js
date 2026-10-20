@@ -1,10 +1,16 @@
 const mongoose = require('mongoose');
 
 const purchaseSchema = new mongoose.Schema({
+  // Optional: guest purchases have guestEmail instead until the account is claimed
   user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
+  },
+  guestEmail: {
+    type: String,
+    lowercase: true,
+    trim: true,
+    index: true,
   },
   content: {
     type: mongoose.Schema.Types.ObjectId,
@@ -21,7 +27,7 @@ const purchaseSchema = new mongoose.Schema({
   paystackReference: {
     type: String,
   },
-  korapayReference: { 
+  korapayReference: {
     type: String,
   },
   paypalOrderId: {
@@ -41,5 +47,15 @@ const purchaseSchema = new mongoose.Schema({
     default: Date.now,
   },
 });
+
+// A purchase must belong to either a user or a guest email
+purchaseSchema.pre('validate', function () {
+  if (!this.user && !this.guestEmail) {
+    throw new Error('Purchase requires a user or guestEmail');
+  }
+});
+
 purchaseSchema.index({ user: 1, content: 1 });
+purchaseSchema.index({ guestEmail: 1, content: 1 });
+
 module.exports = mongoose.model('Purchase', purchaseSchema);

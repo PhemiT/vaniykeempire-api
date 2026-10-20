@@ -1,108 +1,111 @@
 const express = require('express');
 const router = express.Router();
 const paymentController = require('../controllers/paymentController');
-const { authenticate, requireAdmin } = require('../middleware/auth');
+const {
+  authenticate,
+  optionalAuthenticate,
+  requireAdmin,
+} = require('../middleware/auth');
 
 // Webhooks — raw body required, no auth
 router.post('/webhook/stripe', paymentController.handleStripeWebhook);
 router.post('/webhook/paystack', paymentController.handlePaystackWebhook);
 router.post('/webhook/korapay', paymentController.handleKorapayWebhook);
 
-// User: Stripe
+// Checkout: works for logged-in users and guests (guests send `email` in body)
+
+// Stripe
 router.post(
   '/stripe/create-payment-intent',
-  authenticate,
+  optionalAuthenticate,
   paymentController.createStripePaymentIntent
 );
 router.post(
   '/stripe/create-cart-checkout',
-  authenticate,
+  optionalAuthenticate,
   paymentController.createStripeCartPaymentIntent
 );
 
-// User: Paystack
+// Paystack
 router.post(
   '/create-payment-intent',
-  authenticate,
+  optionalAuthenticate,
   paymentController.createPaymentIntent
 );
 router.post(
   '/create-cart-checkout',
-  authenticate,
+  optionalAuthenticate,
   paymentController.createCartPaymentIntent
 );
 router.get(
   '/verify/paystack/:reference',
-  authenticate,
+  optionalAuthenticate,
   paymentController.verifyPaystackPayment
 );
 
-// User: PayPal
+// PayPal
 router.post(
   '/paypal/create-order',
-  authenticate,
+  optionalAuthenticate,
   paymentController.createPaypalOrder
 );
 router.post(
   '/paypal/create-cart-order',
-  authenticate,
+  optionalAuthenticate,
   paymentController.createPaypalCartOrder
 );
 router.post(
   '/paypal/capture/:orderId',
-  authenticate,
+  optionalAuthenticate,
   paymentController.capturePaypalOrder
 );
 
-// User: Korapay
+// Korapay
 router.post(
   '/korapay/create-payment-intent',
-  authenticate,
+  optionalAuthenticate,
   paymentController.createKorapayPaymentIntent
 );
 router.post(
   '/korapay/create-cart-checkout',
-  authenticate,
+  optionalAuthenticate,
   paymentController.createKorapayCartPaymentIntent
 );
 router.get(
   '/verify/korapay/:reference',
-  authenticate,
+  optionalAuthenticate,
   paymentController.verifyKorapayPayment
 );
 
 router.post(
   '/bundle/korapay',
-  authenticate,
+  optionalAuthenticate,
   paymentController.createBundleKorapayIntent
 );
 
-router.get(
-  '/korapay/fx-rate',
-  authenticate,
-  paymentController.getKorapayFxRate
-);
+// Public: just an exchange rate
+router.get('/korapay/fx-rate', paymentController.getKorapayFxRate);
 
 // Shared
 router.get(
   '/status/:paymentIntentId',
-  authenticate,
+  optionalAuthenticate,
   paymentController.getPaymentStatus
 );
 
 router.post(
   '/bundle/paystack',
-  authenticate,
+  optionalAuthenticate,
   paymentController.createBundlePaymentIntent
 );
 router.post(
   '/bundle/paypal',
-  authenticate,
+  optionalAuthenticate,
   paymentController.createBundlePaypalOrder
 );
 router.post(
   '/bundle/stripe',
-  authenticate,
+  optionalAuthenticate,
   paymentController.createBundleStripePaymentIntent
 );
 

@@ -66,25 +66,36 @@ async function generateWithRetry(params, retries = 2) {
   }
 }
 
-async function answerQuery(userMessage) {
-  const queryEmbedding = await embedQuery(userMessage);
-  const contextChunks = await retrieveContext(queryEmbedding);
-
-  const contextBlock = contextChunks
-    .map((c, i) => `[${i + 1}] (${c.link || c.source}): ${c.text}`)
-    .join('\n\n');
-
-  console.log('--- CONTEXT SENT TO MODEL ---\n', contextBlock, '\n--- END CONTEXT ---');
-
-  const result = await generateWithRetry({
-    model: CHAT_MODEL,
-    contents: `${SYSTEM_PROMPT}\n\nContext:\n${contextBlock}\n\nQuestion: ${userMessage}`,
-  });
-
-  const text = result.text;
-  const links = [...new Set(contextChunks.map(c => c.link).filter(Boolean))];
-
-  return { text, links };
+async function answerQuery(userMessage, history = []) {
+    // Include the previous user turn in the retrieval query so follow-ups
+    // like "how much is that one?" still find the right chunks.
+    const prevUser = [...history].reverse().find((m) => m.role === 'user');
+    const retrievalText = prevUser ? `${prevUser.text}\n${userMessage}` : userMessage;
+  
+    const queryEmbedding = await embedQuery(retrievalText);
+    const contextChunks = await retrieveContext(queryEmbedding);
+  
+    const contextBlock = contextChunks
+      .map((c, i) => `[${i + 1}] (${c.link || c.source}): ${c.text}`)
+      .join('\n\n');
+  
+    const result = await generateWithRetry({
+      model: CHAT_MODEL,
+      config: { systemInstruction: SYSTEM_PROMPT },
+      contents: [
+        ...history.map((m) => ({
+          role: m.role === 'user' ? 'user' : 'model',
+          parts: [{ text: m.text }],
+        })),
+        {
+          role: 'user',
+          parts: [{ text: `Context:\n${contextBlock}\n\nQuestion: ${userMessage}` }],
+        },
+      ],
+    });
+  
+    const links = [...new Set(contextChunks.map((c) => c.link).filter(Boolean))];
+    return { text: result.text, links };
 }
 
 module.exports = { answerQuery };

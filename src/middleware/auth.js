@@ -1,6 +1,32 @@
 const { supabase, supabaseAdmin } = require('../config/supabase');
 const User = require('../models/User');
 
+// Finds the MongoDB user for a verified Supabase user, creating it if needed
+// (e.g. first request after Google OAuth).
+const findOrCreateMongoUser = async (user) => {
+  let mongoUser = await User.findOne({ supabaseId: user.id });
+  if (mongoUser) return mongoUser;
+
+  const { data: supabaseData } = await supabaseAdmin.auth.admin.getUserById(
+    user.id
+  );
+  const supabaseUser = supabaseData?.user;
+  const provider = supabaseUser?.app_metadata?.provider ?? 'email';
+
+  mongoUser = await User.create({
+    supabaseId: user.id,
+    email: user.email,
+    name:
+      user.user_metadata?.full_name ||
+      user.user_metadata?.name ||
+      user.email.split('@')[0],
+    emailVerified: !!user.email_confirmed_at,
+    authProvider: provider,
+    role: 'user',
+  });
+  return mongoUser;
+};
+
 const authenticate = async (req, res, next) => {
   try {
     const token = req.headers.authorization?.replace('Bearer ', '');
@@ -19,38 +45,17 @@ const authenticate = async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid token' });
     }
 
-    // Find user in MongoDB
-    let mongoUser = await User.findOne({ supabaseId: user.id });
-
-    // If no MongoDB record exists (e.g. first request after Google OAuth),
-    // create it now using the Supabase user data
-    if (!mongoUser) {
-      try {
-        const { data: supabaseData } =
-          await supabaseAdmin.auth.admin.getUserById(user.id);
-        const supabaseUser = supabaseData?.user;
-        const provider = supabaseUser?.app_metadata?.provider ?? 'email';
-
-        mongoUser = await User.create({
-          supabaseId: user.id,
-          email: user.email,
-          name:
-            user.user_metadata?.full_name ||
-            user.user_metadata?.name ||
-            user.email.split('@')[0],
-          emailVerified: !!user.email_confirmed_at,
-          authProvider: provider,
-          role: 'user',
-        });
-      } catch (createError) {
-        console.error(
-          'Failed to auto-create user from OAuth:',
-          createError.message
-        );
-        return res
-          .status(404)
-          .json({ error: 'User not found and could not be created' });
-      }
+    let mongoUser;
+    try {
+      mongoUser = await findOrCreateMongoUser(user);
+    } catch (createError) {
+      console.error(
+        'Failed to auto-create user from OAuth:',
+        createError.message
+      );
+      return res
+        .status(404)
+        .json({ error: 'User not found and could not be created' });
     }
 
     req.user = user;
@@ -59,6 +64,28 @@ const authenticate = async (req, res, next) => {
   } catch (error) {
     res.status(401).json({ error: 'Authentication failed' });
   }
+};
+
+// Sets req.user / req.mongoUser when a valid token is present.
+// Never rejects: a missing, expired or invalid token is treated as a guest.
+const optionalAuthenticate = async (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return next();
+
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser(token);
+    if (error || !user) return next();
+
+    const mongoUser = await findOrCreateMongoUser(user);
+    req.user = user;
+    req.mongoUser = mongoUser;
+  } catch (err) {
+    // fall through as guest
+  }
+  next();
 };
 
 const requireAdmin = async (req, res, next) => {
@@ -79,4 +106,4 @@ const requireAdmin = async (req, res, next) => {
   }
 };
 
-module.exports = { authenticate, requireAdmin };
+module.exports = { authenticate, optionalAuthenticate, requireAdmin };
