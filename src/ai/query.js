@@ -76,8 +76,8 @@ async function answerQuery(userMessage, history = []) {
     const contextChunks = await retrieveContext(queryEmbedding);
   
     const contextBlock = contextChunks
-      .map((c, i) => `[${i + 1}] (${c.link || c.source}): ${c.text}`)
-      .join('\n\n');
+    .map((c, i) => `[${i + 1}]${c.link ? ` (page: ${c.link})` : ''}\n${c.text}`)
+    .join('\n\n');
   
     const result = await generateWithRetry({
       model: CHAT_MODEL,
@@ -94,7 +94,9 @@ async function answerQuery(userMessage, history = []) {
       ],
     });
   
-    const links = [...new Set(contextChunks.map((c) => c.link).filter(Boolean))];
+    const links = [
+      ...new Set(contextChunks.map((c) => c.link).filter(Boolean)),
+    ].slice(0, 2); 
     return { text: result.text, links };
 }
 
