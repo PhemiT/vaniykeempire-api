@@ -62,6 +62,18 @@ exports.handleMessage = async (req, res) => {
   }
 };
 
+// ─── Internal: Instagram DMs are plain text, so strip the markdown Gemini writes ──
+function toInstagramText(md) {
+  return md
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '$1: $2') // [label](url) -> label: url
+    .replace(/\*\*(.+?)\*\*/g, '$1')                            // **bold**
+    .replace(/^[ \t]*[*-][ \t]+/gm, '• ')                       // "* item" -> "• item"
+    .replace(/\*(.+?)\*/g, '$1')                                // *italic*
+    .replace(/^#{1,6}[ \t]+/gm, '')                             // # headings
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 // ─── Internal: Split long replies to fit Instagram's 1000-character limit ──
 function splitForInstagram(text) {
   const parts = [];
@@ -79,7 +91,7 @@ function splitForInstagram(text) {
 
 // ─── Internal: Send a reply via Meta Graph API ────────────────────────────
 async function sendInstagramReply(recipientId, text) {
-  for (const part of splitForInstagram(text)) {
+  for (const part of splitForInstagram(toInstagramText(text))) {
     await axios.post(
       'https://graph.instagram.com/v21.0/me/messages',
       { recipient: { id: recipientId }, message: { text: part } },
