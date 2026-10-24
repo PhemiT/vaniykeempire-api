@@ -70,7 +70,8 @@ function toInstagramText(md) {
     .replace(/^[ \t]*[*-][ \t]+/gm, '• ')                       // "* item" -> "• item"
     .replace(/\*(.+?)\*/g, '$1')                                // *italic*
     .replace(/^#{1,6}[ \t]+/gm, '')                             // # headings
-    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]+$/gm, '')                                   // trailing spaces
+    .replace(/\n+/g, '\n\n')                                    // one blank line between every line
     .trim();
 }
 
