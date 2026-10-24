@@ -15,7 +15,7 @@ to the question.
 Do NOT include citation markers like [1] or [2, 3] in your answer — write naturally as if
 speaking directly to the customer.
 When relevant, include the page link(s) provided in the context as markdown links with a short
-descriptive label, e.g. [Sound Vault](https://vaniykemusicempire.com/sound-vault). Never print a raw URL.`;
+descriptive label, e.g. [Sound Vault](https://vaniykemusicempire.com/link). Never print a raw URL.`;
 
 async function embedQuery(text) {
   const result = await genAI.models.embedContent({
