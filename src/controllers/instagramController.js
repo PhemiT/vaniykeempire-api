@@ -1,6 +1,8 @@
 const axios = require('axios');
 const { answerQuery } = require('../ai/query');
 
+const IG_MAX = 1000; // Instagram rejects messages over 1000 characters
+
 const GREETING_RE =
   /^(hi+|hello+|hey+|heya|hiya|hola|yo|sup|howdy|greetings|good\s+(morning|afternoon|evening))(\s+(there|everyone|van iyke))?[\s!.,?]*$/i;
 
@@ -60,11 +62,28 @@ exports.handleMessage = async (req, res) => {
   }
 };
 
+// ─── Internal: Split long replies to fit Instagram's 1000-character limit ──
+function splitForInstagram(text) {
+  const parts = [];
+  let rest = text.trim();
+  while (rest.length > IG_MAX) {
+    let cut = rest.lastIndexOf('\n', IG_MAX);
+    if (cut < IG_MAX / 2) cut = rest.lastIndexOf(' ', IG_MAX);
+    if (cut < IG_MAX / 2) cut = IG_MAX;
+    parts.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) parts.push(rest);
+  return parts;
+}
+
 // ─── Internal: Send a reply via Meta Graph API ────────────────────────────
 async function sendInstagramReply(recipientId, text) {
-  await axios.post(
-    'https://graph.instagram.com/v21.0/me/messages',
-    { recipient: { id: recipientId }, message: { text } },
-    { params: { access_token: process.env.INSTAGRAM_PAGE_ACCESS_TOKEN } }
-  );
+  for (const part of splitForInstagram(text)) {
+    await axios.post(
+      'https://graph.instagram.com/v21.0/me/messages',
+      { recipient: { id: recipientId }, message: { text: part } },
+      { params: { access_token: process.env.INSTAGRAM_PAGE_ACCESS_TOKEN } }
+    );
+  }
 }
