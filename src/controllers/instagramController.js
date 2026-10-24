@@ -1,6 +1,27 @@
 const axios = require('axios');
 const { answerQuery } = require('../ai/query');
 
+const GREETING_RE =
+  /^(hi+|hello+|hey+|heya|hiya|hola|yo|sup|howdy|greetings|good\s+(morning|afternoon|evening))(\s+(there|everyone|van iyke))?[\s!.,?]*$/i;
+
+const WELCOME_TEXT = `Welcome to the Empire
+I'm Van Iyke — I help everyday people break into tech (no experience needed), and I make music that feeds your soul.
+We also offer all kinds of tech services: AI automation, software, cybersecurity, and more. If you want to know more or require any of our services, please visit our website: https://www.vaniykemusicempire.com
+If you followed to learn how to transition to Tech, check out our books and Tech Guides: https://www.vaniykemusicempire.com/tech-vault
+If you are here for the Music and Cinematic Videos, follow this link: https://www.vaniykemusicempire.com/sound-vault
+Glad you found us — stick around, there's a lot coming.`;
+
+// Meta can deliver the same message more than once, so skip any mid we've already handled.
+const seen = new Map();
+const isDuplicate = (mid) => {
+  if (!mid) return false;
+  const now = Date.now();
+  for (const [k, t] of seen) if (now - t > 10 * 60 * 1000) seen.delete(k);
+  if (seen.has(mid)) return true;
+  seen.set(mid, now);
+  return false;
+};
+
 // ─── Public: Meta webhook verification ────────────────────────────────────
 exports.verifyWebhook = (req, res) => {
   const mode = req.query['hub.mode'];
@@ -21,9 +42,13 @@ exports.handleMessage = async (req, res) => {
   try {
     const entry = req.body.entry?.[0]?.messaging?.[0];
     if (!entry?.message?.text || entry.message.is_echo) return;
+    if (isDuplicate(entry.message.mid)) return;
 
     const senderId = entry.sender.id;
-    const { text } = await answerQuery(entry.message.text);
+    const incoming = entry.message.text.trim();
+    const text = GREETING_RE.test(incoming)
+      ? WELCOME_TEXT
+      : (await answerQuery(incoming)).text;
 
     try {
       await sendInstagramReply(senderId, text);
