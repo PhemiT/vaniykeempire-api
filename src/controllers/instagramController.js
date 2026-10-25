@@ -39,10 +39,17 @@ I'm Van Iyke — I help everyday people break into tech (no experience needed).
 Start here: our books and Tech Guides: https://www.vaniykemusicempire.com/tech-vault
 Glad you found us — stick around, there's a lot coming.`;
 
+const FILMS_TEXT = `Thank you for watching
+I'm Van Iyke — I make cinematic visuals designed to elevate your energy.
+You can watch on YouTube: https://youtu.be/76H5AK3F7-c
+Or watch on our Website: https://www.vaniykemusicempire.com/empire-films
+Glad you found us — stick around, there's a lot coming.`;
+
 // Comment triggers: first match wins. \b means "start" matches, but "restart" or "starting" don't.
 const COMMENT_TRIGGERS = [
   { re: /\bstart\b/i, text: START_TEXT },
   { re: /\blisten\s+now\b/i, text: LISTEN_TEXT },
+  { re: /\bwatch\s+now\b/i, text: FILMS_TEXT },
   { re: /\bknow\s+more\b/i, text: KNOW_MORE_TEXT },
 ];
 
