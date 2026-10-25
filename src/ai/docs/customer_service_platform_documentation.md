@@ -210,7 +210,6 @@ Bundles offer multi-item savings compared to individual product purchases.
 <!-- link: /about -->
 
 - **Official Contact Email:** `contact@vaniykemusicempire.com`
-- **Phone Contact:** `+234 000 000 0000`
-- **Physical Address:** Plot 7A, Abuja Dames Layout Ext Kaida Rd., Gwagwalada, Nigeria.
+- **Physical Address:** 2160 Highway 7, Suite 669, Vaughan, ON, Canada - L4k1W6
 - **Social Links:** Facebook, Snapchat, Twitter, Instagram, YouTube.
 - **Copyright Notice:** © 2026 Van Iyke Music Empire. All Rights Reserved.

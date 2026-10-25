@@ -2,9 +2,16 @@ const axios = require('axios');
 const { answerQuery } = require('../ai/query');
 
 const IG_MAX = 1000; // Instagram rejects messages over 1000 characters
+const GRAPH_MESSAGES = 'https://graph.instagram.com/v21.0/me/messages';
 
 const GREETING_RE =
   /^(hi+|hello+|hey+|heya|hiya|hola|yo|sup|howdy|greetings|good\s+(morning|afternoon|evening))(\s+(there|everyone|van iyke))?[\s!.,?]*$/i;
+
+// Strips emojis/punctuation first, so "Hello 👋" and "hey!!" both count as greetings
+const isGreeting = (text) =>
+  GREETING_RE.test(
+    text.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
+  );
 
 const WELCOME_TEXT = `Welcome to the Empire
 I'm Van Iyke — I help everyday people break into tech (no experience needed), and I make music that feeds your soul.
@@ -13,14 +20,15 @@ If you followed to learn how to transition to Tech, check out our books and Tech
 If you are here for the Music and Cinematic Videos, follow this link: https://www.vaniykemusicempire.com/sound-vault
 Glad you found us — stick around, there's a lot coming.`;
 
-// Meta can deliver the same message more than once, so skip any mid we've already handled.
+// Meta can deliver the same event more than once, so skip any id we've already handled.
+// Used for both message ids (DMs) and comment ids.
 const seen = new Map();
-const isDuplicate = (mid) => {
-  if (!mid) return false;
+const isDuplicate = (id) => {
+  if (!id) return false;
   const now = Date.now();
   for (const [k, t] of seen) if (now - t > 10 * 60 * 1000) seen.delete(k);
-  if (seen.has(mid)) return true;
-  seen.set(mid, now);
+  if (seen.has(id)) return true;
+  seen.set(id, now);
   return false;
 };
 
@@ -36,31 +44,67 @@ exports.verifyWebhook = (req, res) => {
   res.sendStatus(403);
 };
 
-// ─── Public: Handle incoming Instagram DMs ────────────────────────────────
+// ─── Public: Handle incoming Instagram events (DMs + comments) ────────────
 exports.handleMessage = async (req, res) => {
-  console.log('Webhook received:', JSON.stringify(req.body));
-  res.sendStatus(200); // ack immediately — Meta expects a fast response and will retry on timeout
+  console.log('Webhook received:', JSON.stringify(req.body)); // remove once stable, it logs customer messages
+  res.sendStatus(200); // ack immediately, Meta expects a fast response and will retry on timeout
 
   try {
-    const entry = req.body.entry?.[0]?.messaging?.[0];
-    if (!entry?.message?.text || entry.message.is_echo) return;
-    if (isDuplicate(entry.message.mid)) return;
-
-    const senderId = entry.sender.id;
-    const incoming = entry.message.text.trim();
-    const text = GREETING_RE.test(incoming)
-      ? WELCOME_TEXT
-      : (await answerQuery(incoming)).text;
-
-    try {
-      await sendInstagramReply(senderId, text);
-    } catch (sendError) {
-      console.error('Failed to send Instagram reply:', sendError.response?.data || sendError.message);
+    for (const entry of req.body.entry ?? []) {
+      for (const event of entry.messaging ?? []) {
+        await handleDm(event);
+      }
+      for (const change of entry.changes ?? []) {
+        if (change.field === 'comments') {
+          await handleComment(change.value, entry.id);
+        }
+      }
     }
   } catch (error) {
     console.error('Instagram webhook error:', error.message);
   }
 };
+
+// ─── DMs ──────────────────────────────────────────────────────────────────
+async function handleDm(event) {
+  if (!event?.message?.text || event.message.is_echo) return;
+  if (isDuplicate(event.message.mid)) return;
+
+  try {
+    const senderId = event.sender.id;
+    const incoming = event.message.text.trim();
+    const text = isGreeting(incoming)
+      ? WELCOME_TEXT
+      : (await answerQuery(incoming)).text;
+
+    await sendInstagramReply(senderId, text);
+  } catch (error) {
+    console.error('Failed to handle DM:', error.response?.data || error.message);
+  }
+}
+
+// ─── Comments: a greeting comment gets the welcome message as a private reply ──
+async function handleComment(value, accountId) {
+  const commentId = value?.id;
+  const text = (value?.text || '').trim();
+  if (!commentId || !text) return;
+  if (value?.from?.id === accountId) return; // never reply to our own comments
+  if (!isGreeting(text)) return;
+  if (isDuplicate(commentId)) return;
+
+  try {
+    await axios.post(
+      GRAPH_MESSAGES,
+      {
+        recipient: { comment_id: commentId },
+        message: { text: toInstagramText(WELCOME_TEXT) },
+      },
+      { params: { access_token: process.env.INSTAGRAM_PAGE_ACCESS_TOKEN } }
+    );
+  } catch (error) {
+    console.error('Private reply failed:', error.response?.data || error.message);
+  }
+}
 
 // ─── Internal: Instagram DMs are plain text, so strip the markdown Gemini writes ──
 function toInstagramText(md) {
@@ -94,7 +138,7 @@ function splitForInstagram(text) {
 async function sendInstagramReply(recipientId, text) {
   for (const part of splitForInstagram(toInstagramText(text))) {
     await axios.post(
-      'https://graph.instagram.com/v21.0/me/messages',
+      GRAPH_MESSAGES,
       { recipient: { id: recipientId }, message: { text: part } },
       { params: { access_token: process.env.INSTAGRAM_PAGE_ACCESS_TOKEN } }
     );
