@@ -7,21 +7,39 @@ const GRAPH_MESSAGES = 'https://graph.instagram.com/v21.0/me/messages';
 const GREETING_RE =
   /^(hi+|hello+|hey+|heya|hiya|hola|yo|sup|howdy|greetings|good\s+(morning|afternoon|evening))(\s+(there|everyone|van iyke))?[\s!.,?]*$/i;
 
-
-  // Comment trigger word. \b means "start" matches, but "restart" or "starting" don't
-const START_COMMENT_RE = /\bstart\b/i;
 // Strips emojis/punctuation first, so "Hello 👋" and "hey!!" both count as greetings
 const isGreeting = (text) =>
   GREETING_RE.test(
     text.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
   );
 
-const WELCOME_TEXT = `Welcome to the Empire
+const WELCOME_TEXT = `Welcome to the Empire!
 I'm Van Iyke — I help everyday people break into tech (no experience needed), and I make music that feeds your soul.
-We also offer all kinds of tech services: AI automation, software, cybersecurity, and more. If you want to know more or require any of our services, please visit our website: https://www.vaniykemusicempire.com
+We also offer all kinds of tech services: AI automation, software, cybersecurity, and more.
+If you want to know more or require any of our services, please visit our website: https://www.vaniykemusicempire.com
 If you followed to learn how to transition to Tech, check out our books and Tech Guides: https://www.vaniykemusicempire.com/tech-vault
-If you are here for the Music and Cinematic Videos, follow this link: https://www.vaniykemusicempire.com/sound-vault
+If you are here for the Music, follow this link: https://www.vaniykemusicempire.com/sound-vault
+If you are here for the Cinematic Videos, follow this link: https://www.vaniykemusicempire.com/empire-films
 Glad you found us — stick around, there's a lot coming.`;
+
+const LISTEN_TEXT = `Thank you for watching
+I'm Van Iyke — I make music that warms your soul.
+Glad you enjoyed the Sound.
+You can Listen Here: https://www.vaniykemusicempire.com/sound-vault
+Happy you found us — stick around, there's a lot coming.`;
+
+const KNOW_MORE_TEXT = `Thank you for reaching out
+I'm Van Iyke — we help businesses and companies grow with tech: AI automation, software, cybersecurity, and more.
+We build systems that save you time, cut manual work, and protect your business.
+Learn more here: https://www.vaniykemusicempire.com/tech-services
+Glad you found us — stick around, there's a lot coming.`;
+
+// Comment triggers: first match wins. \b means "start" matches, but "restart" or "starting" don't.
+const COMMENT_TRIGGERS = [
+  { re: /\bstart\b/i, text: WELCOME_TEXT },
+  { re: /\blisten\s+now\b/i, text: LISTEN_TEXT },
+  { re: /\bknow\s+more\b/i, text: KNOW_MORE_TEXT },
+];
 
 // Meta can deliver the same event more than once, so skip any id we've already handled.
 // Used for both message ids (DMs) and comment ids.
@@ -86,13 +104,15 @@ async function handleDm(event) {
   }
 }
 
-// ─── Comments: a greeting comment gets the welcome message as a private reply ──
+// ─── Comments: a trigger word in a comment gets its matching message as a private reply ──
 async function handleComment(value, accountId) {
   const commentId = value?.id;
   const text = (value?.text || '').trim();
   if (!commentId || !text) return;
   if (value?.from?.id === accountId) return; // never reply to our own comments
-  if (!START_COMMENT_RE.test(text)) return;
+
+  const trigger = COMMENT_TRIGGERS.find((t) => t.re.test(text));
+  if (!trigger) return;
   if (isDuplicate(commentId)) return;
 
   try {
@@ -100,7 +120,7 @@ async function handleComment(value, accountId) {
       GRAPH_MESSAGES,
       {
         recipient: { comment_id: commentId },
-        message: { text: toInstagramText(WELCOME_TEXT) },
+        message: { text: toInstagramText(trigger.text) },
       },
       { params: { access_token: process.env.INSTAGRAM_PAGE_ACCESS_TOKEN } }
     );
