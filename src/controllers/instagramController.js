@@ -7,6 +7,9 @@ const GRAPH_MESSAGES = 'https://graph.instagram.com/v21.0/me/messages';
 const GREETING_RE =
   /^(hi+|hello+|hey+|heya|hiya|hola|yo|sup|howdy|greetings|good\s+(morning|afternoon|evening))(\s+(there|everyone|van iyke))?[\s!.,?]*$/i;
 
+
+  // Comment trigger word. \b means "start" matches, but "restart" or "starting" don't
+const START_COMMENT_RE = /\bstart\b/i;
 // Strips emojis/punctuation first, so "Hello 👋" and "hey!!" both count as greetings
 const isGreeting = (text) =>
   GREETING_RE.test(
@@ -89,7 +92,7 @@ async function handleComment(value, accountId) {
   const text = (value?.text || '').trim();
   if (!commentId || !text) return;
   if (value?.from?.id === accountId) return; // never reply to our own comments
-  if (!isGreeting(text)) return;
+  if (!START_COMMENT_RE.test(text)) return;
   if (isDuplicate(commentId)) return;
 
   try {
