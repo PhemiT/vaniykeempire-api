@@ -34,9 +34,14 @@ We build systems that save you time, cut manual work, and protect your business.
 Learn more here: https://www.vaniykemusicempire.com/tech-services
 Glad you found us — stick around, there's a lot coming.`;
 
+const START_TEXT = `Thank you for watching
+I'm Van Iyke — I help everyday people break into tech (no experience needed).
+Start here: our books and Tech Guides: https://www.vaniykemusicempire.com/tech-vault
+Glad you found us — stick around, there's a lot coming.`;
+
 // Comment triggers: first match wins. \b means "start" matches, but "restart" or "starting" don't.
 const COMMENT_TRIGGERS = [
-  { re: /\bstart\b/i, text: WELCOME_TEXT },
+  { re: /\bstart\b/i, text: START_TEXT },
   { re: /\blisten\s+now\b/i, text: LISTEN_TEXT },
   { re: /\bknow\s+more\b/i, text: KNOW_MORE_TEXT },
 ];
