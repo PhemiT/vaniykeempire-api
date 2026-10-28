@@ -739,6 +739,30 @@ exports.getContentAdmin = async (req, res) => {
   }
 };
 
+// ─── Public: Watch free video (no account required) ───────────────────────
+exports.watchFree = async (req, res) => {
+  try {
+    const { contentId } = req.params;
+
+    const content = await Content.findOne({
+      _id: contentId,
+      status: 'published',
+      type: 'video',
+      price: 0,
+    }).populate('createdBy', 'name');
+
+    if (!content) return res.status(404).json({ error: 'Free film not found' });
+    if (!content.hlsMasterUrl)
+      return res.status(404).json({ error: 'Video is still processing' });
+
+    const doc = content.toObject();
+    doc.fileUrl = generateSignedVideoUrl(contentId);
+    res.json({ content: doc });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 exports.claimFree = async (req, res) => {
   try {
     const { contentId } = req.params;
