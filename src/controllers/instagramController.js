@@ -36,7 +36,8 @@ Glad you found us — stick around, there's a lot coming.`;
 
 const START_TEXT = `Thank you for watching
 I'm Van Iyke — I help everyday people break into tech (no experience needed).
-Start here: our books and Tech Guides: https://www.vaniykemusicempire.com/tech-vault
+Start here: our books and Tech Guides: https://www.vaniykemusicempire.com/tech-vault 
+Early bird discounted price: just $10 (regular $30) -Ends Soon! 
 Glad you found us — stick around, there's a lot coming.`;
 
 const FILMS_TEXT = `Thank you for watching
