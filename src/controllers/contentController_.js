@@ -12,6 +12,7 @@ const {
   generateSignedVideoUrl,
   generateSignedPreviewUrl,
 } = require('../config/r2');
+const { PDFDocument } = require('pdf-lib');
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -35,6 +36,64 @@ async function resolveThumbnail(files, fromDisk = false) {
   }
 
   return { thumbnailUrl: thumb.path, thumbnailPublicId: thumb.filename };
+}
+
+// ─── PDF preview helpers ───────────────────────────────────────────────────
+function parsePreviewPages(value) {
+  const n = Math.floor(Number(value));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+// Deletes the cached preview file from Cloudinary and clears its fields.
+// Does not save — the caller saves.
+async function clearPdfPreview(content) {
+  if (content.previewPdfPublicId) {
+    await cloudinary.uploader
+      .destroy(content.previewPdfPublicId, { resource_type: 'raw' })
+      .catch((e) => console.warn('Cloudinary preview PDF delete failed:', e.message));
+  }
+  content.previewPdfUrl = null;
+  content.previewPdfPublicId = null;
+  content.previewPdfPagesBuilt = 0;
+}
+
+// Copies the first N pages of the original into a new PDF and uploads it.
+async function buildPdfPreview(content) {
+  const resp = await fetch(content.fileUrl);
+  if (!resp.ok) {
+    throw new Error(`Could not fetch original PDF: ${resp.status}`);
+  }
+  const src = await PDFDocument.load(new Uint8Array(await resp.arrayBuffer()), {
+    ignoreEncryption: true,
+  });
+
+  const total = src.getPageCount();
+  if (content.previewPages >= total) {
+    const err = new Error(
+      `Preview pages (${content.previewPages}) must be fewer than the book's total pages (${total})`
+    );
+    err.status = 400;
+    throw err;
+  }
+
+  const out = await PDFDocument.create();
+  const indices = Array.from({ length: content.previewPages }, (_, i) => i);
+  const pages = await out.copyPages(src, indices);
+  pages.forEach((p) => out.addPage(p));
+  const bytes = Buffer.from(await out.save());
+
+  return new Promise((resolve, reject) => {
+    cloudinary.uploader
+      .upload_stream(
+        {
+          folder: 'content/pdf-previews',
+          resource_type: 'raw',
+          public_id: `${content._id}-${content.previewPages}-${Date.now()}.pdf`,
+        },
+        (err, result) => (err ? reject(err) : resolve(result))
+      )
+      .end(bytes);
+  });
 }
 
 // Triggers the GitHub Actions transcode workflow via workflow_dispatch.
@@ -285,6 +344,7 @@ exports.createContent = async (req, res) => {
       filePublicId,
       fileSize,
       duration,
+      previewPages: type === 'pdf' ? parsePreviewPages(req.body.previewPages) : 0,
       thumbnailUrl,
       thumbnailPublicId,
       status: status || 'draft',
@@ -378,6 +438,7 @@ exports.updateContent = async (req, res) => {
       content.filePublicId = tempFile.filename;
       content.fileSize = tempFile.bytes;
       content.duration = tempFile.duration ?? content.duration;
+      if (content.type === 'pdf') await clearPdfPreview(content);
     }
 
     // ── Replace thumbnail if a new one was uploaded ──
@@ -396,8 +457,14 @@ exports.updateContent = async (req, res) => {
     }
 
     // ── Update scalar fields ──
+    if (updates.previewPages !== undefined) {
+      const n = parsePreviewPages(updates.previewPages);
+      if (n !== content.previewPages) await clearPdfPreview(content);
+      content.previewPages = n;
+    }
+
     Object.keys(updates).forEach((key) => {
-      if (['file', 'thumbnail'].includes(key)) return;
+      if (['file', 'thumbnail', 'previewPages'].includes(key)) return;
       if (key === 'tags' && typeof updates[key] === 'string') {
         content[key] = JSON.parse(updates[key]);
       } else {
@@ -459,6 +526,8 @@ exports.deleteContent = async (req, res) => {
         resource_type: 'image',
       });
     }
+
+    await clearPdfPreview(content);
 
     await Content.findByIdAndDelete(contentId);
     res.json({ message: 'Content and files deleted successfully' });
@@ -807,6 +876,34 @@ exports.getPreview = async (req, res) => {
       status: 'published',
     });
     if (!content) return res.status(404).json({ error: 'Content not found' });
+
+    if (content.type === 'pdf') {
+      if (!content.previewPages) {
+        return res.status(404).json({ error: 'No preview available for this book' });
+      }
+
+      // Cached, built as raw, and still matches the configured page count
+      if (
+        content.previewPdfUrl &&
+        content.previewPdfUrl.includes('/raw/upload/') &&
+        content.previewPdfPagesBuilt === content.previewPages
+      ) {
+        return res.json({ previewUrl: content.previewPdfUrl });
+      }
+
+      try {
+        await clearPdfPreview(content); // drop any stale file
+        const result = await buildPdfPreview(content);
+        console.log('PDF preview built:', result.secure_url);
+        content.previewPdfUrl = result.secure_url;
+        content.previewPdfPublicId = result.public_id;
+        content.previewPdfPagesBuilt = content.previewPages;
+        await content.save();
+        return res.json({ previewUrl: content.previewPdfUrl });
+      } catch (e) {
+        return res.status(e.status || 500).json({ error: e.message });
+      }
+    }
 
     if (content.type !== 'video') {
       return res

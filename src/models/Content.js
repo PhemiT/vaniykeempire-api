@@ -61,6 +61,15 @@ const contentSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  // PDF book preview: first N pages (0 = no preview)
+  previewPages: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+  previewPdfUrl: { type: String, default: null },
+  previewPdfPublicId: { type: String, default: null },
+  previewPdfPagesBuilt: { type: Number, default: 0 },
   duration: {
     type: Number,
   },

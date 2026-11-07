@@ -29,6 +29,7 @@
     "multer": "^2.0.2",
     "multer-storage-cloudinary": "^4.0.0",
     "openai": "^7.23.0",
+    "pdf-lib": "^1.17.1",
     "stripe": "^20.3.1"
   },
   "devDependencies": {
